@@ -1,7 +1,0 @@
-/panfs/ccds02/app/modules/anaconda/platform/x86_64/rhel/8.6/3-2022.05/envs/ilab-pytorch/lib/python3.9/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: libtorch_cuda_cu.so: cannot open shared object file: No such file or directory
-  warn(f"Failed to load image Python extension: {e}")
-GPU available: True (cuda), used: True
-TPU available: False, using: 0 TPU cores
-/home/aliewehr/.local/lib/python3.9/site-packages/pytorch_lightning/callbacks/model_checkpoint.py:881: Checkpoint directory /panfs/ccds02/nobackup/people/aliewehr/satvision-pix4d/examples/abi_3d_reconstruction/updatedModelSummer2026/checkpoints/unet3d_baseline exists and is not empty.
-LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
-SLURM auto-requeueing enabled. Setting signal handlers.
