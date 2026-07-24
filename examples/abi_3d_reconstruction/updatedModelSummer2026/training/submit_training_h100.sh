@@ -45,8 +45,10 @@ else
     echo "Container build finished at $(date)"
 fi
 
-# Fix numpy 2.0 binary incompatibility with scikit-learn in the base container
-singularity exec --writable "$CONTAINER" pip install "numpy<2"
+# Fix dependency issues in the :latest container:
+#   - numpy<2: binary incompatibility between scikit-learn and numpy>=2
+#   - huggingface-hub>=1.5.0: required by transformers 5.x (container ships 1.2.3)
+singularity exec --writable "$CONTAINER" pip install "numpy<2" "huggingface-hub>=1.5.0,<2"
 
 # Run training inside the Singularity container
 #   --nv          : Enable NVIDIA GPU support (passes through CUDA drivers)
