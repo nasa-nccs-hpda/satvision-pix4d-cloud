@@ -24,6 +24,10 @@ from satvision_pix4d.preprocessing.cloudsat_abi.pipeline import (
     run_parallel,
 )
 from satvision_pix4d.preprocessing.cloudsat_abi.merra2 import MERRA2Reader
+from satvision_pix4d.readers.abi_l1b_common_grid import (
+    common_to_native_indices,
+    normalize_abi_l1b_for_model,
+)
 from satvision_pix4d.preprocessing.cloudsat_abi.writer import NPZChipWriter
 from satvision_pix4d.view.cloudsat_abi_cropping_cli import (
     build_parser,
@@ -171,6 +175,14 @@ def test_native_indices_match_original_one_km_resampling():
     assert ABIArchive._native_indices(3, 7, 2.0).tolist() == [6, 8, 10, 12]
     assert ABIArchive._native_indices(3, 7, 1.0).tolist() == [3, 4, 5, 6]
     assert ABIArchive._native_indices(3, 7, 0.5).tolist() == [1, 2, 2, 3]
+    assert common_to_native_indices(3, 7, 0.5).tolist() == [1, 2, 2, 3]
+
+
+def test_shared_abi_model_normalization_is_explicit():
+    chip = np.asarray([1.0, 3.0], dtype=np.float32)
+    normalized = normalize_abi_l1b_for_model(chip, mean=1.0, std=2.0)
+
+    assert normalized.tolist() == [0.0, 1.0]
 
 
 def test_merra2_reader_samples_chip_pixels_and_normalizes_variables(tmp_path):
@@ -289,6 +301,21 @@ def test_cloudsat_auxiliary_arrays_are_saved_with_selected_profiles(tmp_path):
         def nearest(latitude, longitude):
             return 10, 20
 
+        @staticmethod
+        def crop_latlon(row, column, size):
+            return (
+                np.zeros((size, size), dtype=np.float32),
+                np.zeros((size, size), dtype=np.float32),
+            )
+
+        @staticmethod
+        def solar_zenith_angle(latitudes, longitudes, timestamp):
+            return np.full(latitudes.shape, 80.0, dtype=np.float32)
+
+        @staticmethod
+        def view_zenith_angle(latitudes, longitudes, satellite_longitude):
+            return np.full(latitudes.shape, 20.0, dtype=np.float32)
+
     class FakeABI:
         geometry = FakeGeometry()
 
@@ -382,6 +409,21 @@ def test_pipeline_components_are_injectable_and_preserve_output_schema(tmp_path)
         def nearest(latitude, longitude):
             return 10, 20
 
+        @staticmethod
+        def crop_latlon(row, column, size):
+            return (
+                np.zeros((size, size), dtype=np.float32),
+                np.zeros((size, size), dtype=np.float32),
+            )
+
+        @staticmethod
+        def solar_zenith_angle(latitudes, longitudes, timestamp):
+            return np.full(latitudes.shape, 80.0, dtype=np.float32)
+
+        @staticmethod
+        def view_zenith_angle(latitudes, longitudes, satellite_longitude):
+            return np.full(latitudes.shape, 20.0, dtype=np.float32)
+
     class FakeABI:
         geometry = FakeGeometry()
 
@@ -413,6 +455,10 @@ def test_pipeline_components_are_injectable_and_preserve_output_schema(tmp_path)
     with np.load(outputs[0]) as data:
         assert data["ABI/chip"].shape == (3, 8, 8, 16)
         assert data["ABI/offsets_minutes"].tolist() == [-20, 0, 20]
+        assert data["ABI/solar_zenith_angle"].shape == (3, 8, 8)
+        assert data["ABI/view_zenith_angle"].shape == (3, 8, 8)
+        assert data["ABI/solar_zenith_angle"][0, 0, 0] == 80.0
+        assert data["ABI/view_zenith_angle"][0, 0, 0] == 20.0
         assert data["CloudSat/cloud_class"].shape == (5, 40)
         assert data["CloudSat/cloud_binary_mask"].shape == (5, 40)
         assert data["CloudSat/abi_row"].shape == (5,)
@@ -439,6 +485,21 @@ def test_chip_profile_selection_covers_top_to_bottom_in_abi_row_order(tmp_path):
         @staticmethod
         def nearest(latitude, longitude):
             return int(round(50 + latitude)), 50
+
+        @staticmethod
+        def crop_latlon(row, column, size):
+            return (
+                np.zeros((size, size), dtype=np.float32),
+                np.zeros((size, size), dtype=np.float32),
+            )
+
+        @staticmethod
+        def solar_zenith_angle(latitudes, longitudes, timestamp):
+            return np.full(latitudes.shape, 80.0, dtype=np.float32)
+
+        @staticmethod
+        def view_zenith_angle(latitudes, longitudes, satellite_longitude):
+            return np.full(latitudes.shape, 20.0, dtype=np.float32)
 
     class FakeABI:
         geometry = TrackGeometry()

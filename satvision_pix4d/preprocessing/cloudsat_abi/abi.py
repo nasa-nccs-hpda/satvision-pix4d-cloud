@@ -17,6 +17,10 @@ from satvision_pix4d.preprocessing.cloudsat_abi.utils import (
     normalize_longitude,
     require_netcdf4,
 )
+from satvision_pix4d.readers.abi_l1b_common_grid import (
+    common_to_native_indices,
+    crop_l1b_rad_to_common_grid,
+)
 
 
 LOG = logging.getLogger(__name__)
@@ -54,6 +58,10 @@ class ABIFileInfo:
 
 class ABIGeometry:
     """Find the nearest pixel in an East or West ABI geolocation grid."""
+
+    WGS84_SEMI_MAJOR_AXIS_M = 6378137.0
+    WGS84_SEMI_MINOR_AXIS_M = 6356752.31414
+    SATELLITE_HEIGHT_M = 35786023.0
 
     def __init__(self, path: Path, coarse_target_size: int = 256):
         self.path = Path(path)
@@ -147,6 +155,110 @@ class ABIGeometry:
         selection = np.s_[row_start:row_stop, column_start:column_stop]
         return self.latitude[selection], self.longitude[selection]
 
+    def solar_zenith_angle(
+        self,
+        latitudes: np.ndarray,
+        longitudes: np.ndarray,
+        timestamp: datetime,
+    ) -> np.ndarray:
+        """Approximate per-pixel solar zenith angle in degrees."""
+        utc_hour = (
+            timestamp.hour
+            + timestamp.minute / 60
+            + timestamp.second / 3600
+            + timestamp.microsecond / 3.6e9
+        )
+        year = timestamp.year
+        days_in_year = 366 if self._leap_year(year) else 365
+        day_of_year = int(timestamp.strftime("%j"))
+        fractional_year = (
+            2 * np.pi / days_in_year * (day_of_year - 1 + (utc_hour - 12) / 24)
+        )
+        equation_of_time = 229.18 * (
+            0.000075
+            + 0.001868 * np.cos(fractional_year)
+            - 0.032077 * np.sin(fractional_year)
+            - 0.014615 * np.cos(2 * fractional_year)
+            - 0.040849 * np.sin(2 * fractional_year)
+        )
+        declination = (
+            0.006918
+            - 0.399912 * np.cos(fractional_year)
+            + 0.070257 * np.sin(fractional_year)
+            - 0.006758 * np.cos(2 * fractional_year)
+            + 0.000907 * np.sin(2 * fractional_year)
+            - 0.002697 * np.cos(3 * fractional_year)
+            + 0.00148 * np.sin(3 * fractional_year)
+        )
+        true_solar_minutes = (
+            timestamp.hour * 60
+            + timestamp.minute
+            + timestamp.second / 60
+            + equation_of_time
+            + 4 * longitudes
+        ) % 1440
+        hour_angle = np.deg2rad(true_solar_minutes / 4 - 180)
+        latitude_rad = np.deg2rad(latitudes)
+        cosine_zenith = (
+            np.sin(latitude_rad) * np.sin(declination)
+            + np.cos(latitude_rad)
+            * np.cos(declination)
+            * np.cos(hour_angle)
+        )
+        angle = np.rad2deg(np.arccos(np.clip(cosine_zenith, -1, 1)))
+        return self._mask_invalid_angle(angle, latitudes, longitudes)
+
+    def view_zenith_angle(
+        self,
+        latitudes: np.ndarray,
+        longitudes: np.ndarray,
+        satellite_longitude: float,
+    ) -> np.ndarray:
+        """Compute GOES satellite/view zenith angle in degrees."""
+        latitude_rad = np.deg2rad(latitudes)
+        longitude_rad = np.deg2rad(longitudes)
+        satellite_longitude_rad = np.deg2rad(satellite_longitude)
+        semi_major = self.WGS84_SEMI_MAJOR_AXIS_M
+        semi_minor = self.WGS84_SEMI_MINOR_AXIS_M
+        eccentricity_sq = 1 - (semi_minor ** 2 / semi_major ** 2)
+
+        sin_latitude = np.sin(latitude_rad)
+        prime_vertical_radius = semi_major / np.sqrt(
+            1 - eccentricity_sq * sin_latitude ** 2
+        )
+        observer_x = (
+            prime_vertical_radius
+            * np.cos(latitude_rad)
+            * np.cos(longitude_rad)
+        )
+        observer_y = (
+            prime_vertical_radius
+            * np.cos(latitude_rad)
+            * np.sin(longitude_rad)
+        )
+        observer_z = (
+            prime_vertical_radius
+            * (1 - eccentricity_sq)
+            * sin_latitude
+        )
+
+        satellite_radius = semi_major + self.SATELLITE_HEIGHT_M
+        satellite_x = satellite_radius * np.cos(satellite_longitude_rad)
+        satellite_y = satellite_radius * np.sin(satellite_longitude_rad)
+        line_x = satellite_x - observer_x
+        line_y = satellite_y - observer_y
+        line_z = -observer_z
+        line_norm = np.sqrt(line_x ** 2 + line_y ** 2 + line_z ** 2)
+
+        up_x = np.cos(latitude_rad) * np.cos(longitude_rad)
+        up_y = np.cos(latitude_rad) * np.sin(longitude_rad)
+        up_z = np.sin(latitude_rad)
+        cosine_zenith = (
+            line_x * up_x + line_y * up_y + line_z * up_z
+        ) / line_norm
+        angle = np.rad2deg(np.arccos(np.clip(cosine_zenith, -1, 1)))
+        return self._mask_invalid_angle(angle, latitudes, longitudes)
+
     def inside_inner_disk(self, row: int, column: int, margin: int) -> bool:
         """Match the original conservative square inner-disk center bounds."""
         return (
@@ -164,6 +276,26 @@ class ABIGeometry:
         longitude_delta = np.abs(longitudes - longitude)
         longitude_delta = np.minimum(longitude_delta, 360.0 - longitude_delta)
         return np.abs(latitudes - latitude) + longitude_delta
+
+    @staticmethod
+    def _mask_invalid_angle(
+        angle: np.ndarray,
+        latitudes: np.ndarray,
+        longitudes: np.ndarray,
+    ) -> np.ndarray:
+        angle = angle.astype(np.float32, copy=True)
+        invalid = (
+            ~np.isfinite(latitudes)
+            | ~np.isfinite(longitudes)
+            | (np.abs(latitudes) > 90)
+            | (np.abs(longitudes) > 360)
+        )
+        angle[invalid] = np.nan
+        return angle
+
+    @staticmethod
+    def _leap_year(year: int) -> bool:
+        return (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
 
 
 class ABIArchive:
@@ -304,49 +436,15 @@ class ABIArchive:
     def _crop_channel(
         self, path: Path, row: int, column: int, size: int
     ) -> np.ndarray:
-        nc = require_netcdf4()
-        with nc.Dataset(path) as dataset:
-            variable = dataset.variables["Rad"]
-            scale = variable.shape[0] / self.geometry.latitude.shape[0]
-            if (
-                not np.isclose(scale, round(scale))
-                and not np.isclose(1 / scale, round(1 / scale))
-            ):
-                raise ValueError(
-                    f"Unsupported ABI channel resolution {variable.shape} in {path}"
-                )
-            common_row_start = row - size // 2
-            common_row_stop = row + size // 2
-            common_column_start = column - size // 2
-            common_column_stop = column + size // 2
-            native_rows = self._native_indices(
-                common_row_start, common_row_stop, scale
-            )
-            native_columns = self._native_indices(
-                common_column_start, common_column_stop, scale
-            )
-            row_slice = slice(int(native_rows[0]), int(native_rows[-1]) + 1)
-            column_slice = slice(
-                int(native_columns[0]), int(native_columns[-1]) + 1
-            )
-            if (
-                row_slice.start < 0
-                or column_slice.start < 0
-                or row_slice.stop > variable.shape[0]
-                or column_slice.stop > variable.shape[1]
-            ):
-                raise ValueError(
-                    f"Chip centered at {(row, column)} extends outside ABI grid"
-                )
-            raw = variable[row_slice, column_slice]
-            if np.ma.isMaskedArray(raw):
-                raw = raw.filled(np.nan)
-            chip = np.asarray(raw, dtype=np.float32)
-        row_index = native_rows - native_rows[0]
-        column_index = native_columns - native_columns[0]
-        return chip[np.ix_(row_index, column_index)]
+        return crop_l1b_rad_to_common_grid(
+            path,
+            row,
+            column,
+            size,
+            self.geometry.latitude.shape,
+        )
 
     @staticmethod
     def _native_indices(start: int, stop: int, scale: float) -> np.ndarray:
         """Map common 1 km grid indices to native ABI pixels exactly."""
-        return np.floor(np.arange(start, stop) * scale).astype(int)
+        return common_to_native_indices(start, stop, scale)

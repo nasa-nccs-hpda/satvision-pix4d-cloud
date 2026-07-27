@@ -19,6 +19,7 @@ class SatelliteSpec:
     name: str
     region: str
     number: int
+    subpoint_longitude: float
 
     @property
     def platform_code(self) -> str:
@@ -37,10 +38,10 @@ class SatelliteSpec:
 
 
 SATELLITES = {
-    "goes16": SatelliteSpec("goes16", "GOES-16", "east", 16),
-    "goes17": SatelliteSpec("goes17", "GOES-17", "west", 17),
-    "goes18": SatelliteSpec("goes18", "GOES-18", "west", 18),
-    "goes19": SatelliteSpec("goes19", "GOES-19", "east", 19),
+    "goes16": SatelliteSpec("goes16", "GOES-16", "east", 16, -75.0),
+    "goes17": SatelliteSpec("goes17", "GOES-17", "west", 17, -137.0),
+    "goes18": SatelliteSpec("goes18", "GOES-18", "west", 18, -137.0),
+    "goes19": SatelliteSpec("goes19", "GOES-19", "east", 19, -75.0),
 }
 
 
@@ -84,6 +85,7 @@ class CropConfig:
     allow_missing_timesteps: bool = False
     overwrite: bool = False
     max_chips: int | None = None
+    progress: bool = False
 
     def __post_init__(self):
         if self.chip_size <= 0 or self.chip_size % 2:

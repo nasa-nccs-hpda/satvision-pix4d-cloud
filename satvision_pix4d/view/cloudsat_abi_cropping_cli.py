@@ -161,6 +161,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after this many new outputs (useful for validation)",
     )
     parser.add_argument(
+        "--progress", action="store_true",
+        help=(
+            "Show tqdm progress bars when tqdm is installed. In serial mode "
+            "this tracks candidates per orbit; with --workers it tracks "
+            "completed orbits."
+        ),
+    )
+    parser.add_argument(
         "--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR"),
         default="INFO",
     )
@@ -206,6 +214,7 @@ def config_from_args(args: argparse.Namespace) -> CropConfig:
         allow_missing_timesteps=args.allow_missing_timesteps,
         overwrite=args.overwrite,
         max_chips=args.max_chips,
+        progress=args.progress,
     )
 
 

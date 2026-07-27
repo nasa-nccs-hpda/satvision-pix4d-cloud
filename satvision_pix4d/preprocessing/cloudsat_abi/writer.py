@@ -35,7 +35,9 @@ class CollocatedChip:
             ),
         }
         for name, value in self.auxiliary_arrays.items():
-            if name.startswith("cloudsat_"):
+            if name.startswith("abi_"):
+                arrays[f"ABI/{name.removeprefix('abi_')}"] = value
+            elif name.startswith("cloudsat_"):
                 arrays[f"CloudSat/{name.removeprefix('cloudsat_')}"] = value
             elif name.startswith("merra2_"):
                 arrays[f"MERRA2/{name.removeprefix('merra2_')}"] = value

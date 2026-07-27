@@ -6,7 +6,7 @@ import logging
 import multiprocessing
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 import numpy as np
@@ -42,6 +42,21 @@ class OrbitResult:
     candidates: int
     written: int
     skipped: dict[str, int]
+
+
+def _progress(
+    iterable,
+    *,
+    enabled: bool,
+    **kwargs,
+):
+    if not enabled:
+        return iterable
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        return iterable
+    return tqdm(iterable, **kwargs)
 
 
 class CloudSatABICollocationPipeline:
@@ -163,9 +178,16 @@ class CloudSatABICollocationPipeline:
         skipped = Counter()
         orbit_written = 0
         candidates = 0
-        for candidates, center in enumerate(
-            self._profile_centers(transect), start=1
-        ):
+        centers = self._profile_centers(transect)
+        progress = _progress(
+            centers,
+            enabled=self.config.progress,
+            total=len(centers),
+            desc=f"orbit {orbit_file.orbit}",
+            unit="candidate",
+            leave=False,
+        )
+        for candidates, center in enumerate(progress, start=1):
             if max_new is not None and orbit_written >= max_new:
                 break
             try:
@@ -189,6 +211,12 @@ class CloudSatABICollocationPipeline:
                 LOG.info("%s %s", "Saved" if created else "Exists", output)
 
             if candidates % 100 == 0:
+                if hasattr(progress, "set_postfix"):
+                    progress.set_postfix(
+                        new=orbit_written,
+                        skipped=sum(skipped.values()),
+                        refresh=False,
+                    )
                 LOG.info(
                     "Orbit %s progress: %d candidates, %d new, skipped=%s",
                     orbit_file.orbit,
@@ -210,6 +238,12 @@ class CloudSatABICollocationPipeline:
             result.written,
             result.skipped,
         )
+        if hasattr(progress, "set_postfix"):
+            progress.set_postfix(
+                new=orbit_written,
+                skipped=sum(skipped.values()),
+                refresh=False,
+            )
         return result
 
     @staticmethod
@@ -338,14 +372,12 @@ class CloudSatABICollocationPipeline:
                 )
             metadata["cloudsat_aux_source"] = str(auxiliary_transect.source)
 
-        chip_latitude, chip_longitude = None, None
-        if "merra2" in self.config.metadata:
-            chip_latitude, chip_longitude = self.abi.geometry.crop_latlon(
-                row, column, self.config.chip_size
-            )
+        chip_latitude, chip_longitude = self.abi.geometry.crop_latlon(
+            row, column, self.config.chip_size
+        )
 
         # CloudSat eligibility is deliberately checked before expensive ABI I/O.
-        chips, scan_times, valid, requested_times = [], [], [], []
+        chips, scan_times, valid, requested_times, angle_times = [], [], [], [], []
         for offset in self.config.offsets:
             requested = center_time + timedelta(minutes=offset)
             requested_times.append(requested)
@@ -367,10 +399,28 @@ class CloudSatABICollocationPipeline:
                 valid.append(0)
             chips.append(chip)
             scan_times.append(scan_time.isoformat() if scan_time else "")
+            angle_times.append(scan_time or requested)
+
+        solar_zenith_angle = np.stack(
+            [
+                self.abi.geometry.solar_zenith_angle(
+                    chip_latitude, chip_longitude, angle_time
+                )
+                for angle_time in angle_times
+            ]
+        )
+        view_zenith_angle = self.abi.geometry.view_zenith_angle(
+            chip_latitude,
+            chip_longitude,
+            self.config.satellite.subpoint_longitude,
+        )
+        auxiliary["abi_solar_zenith_angle"] = solar_zenith_angle
+        auxiliary["abi_view_zenith_angle"] = np.broadcast_to(
+            view_zenith_angle, solar_zenith_angle.shape
+        ).copy()
 
         if "merra2" in self.config.metadata:
             assert self.merra2 is not None
-            assert chip_latitude is not None and chip_longitude is not None
             values, sources = self.merra2.sample_chip(
                 requested_times, chip_latitude, chip_longitude
             )
@@ -548,6 +598,8 @@ class CloudSatABICollocationPipeline:
             "abi_valid_fraction": valid_fraction,
             "abi_inner_disk_margin": self.config.inner_disk_margin,
             "abi_common_grid_resolution_km": 1.0,
+            "abi_solar_zenith_units": "degrees",
+            "abi_view_zenith_units": "degrees",
             "chip_size": self.config.chip_size,
             "cloudsat_profile_selection": self.config.profile_selection,
             "cloudsat_profiles_per_chip": (
@@ -609,17 +661,25 @@ def run_parallel(config: CropConfig, workers: int) -> int:
     )
     written = 0
     context = multiprocessing.get_context("spawn")
+    worker_config = replace(config, progress=False)
     with ProcessPoolExecutor(
         max_workers=workers,
         mp_context=context,
         initializer=_initialize_worker,
-        initargs=(config,),
+        initargs=(worker_config,),
     ) as executor:
         futures = {
             executor.submit(_process_orbit_worker, orbit_file): orbit_file
             for orbit_file in orbit_files
         }
-        for future in as_completed(futures):
+        completed = _progress(
+            as_completed(futures),
+            enabled=config.progress,
+            total=len(futures),
+            desc="CloudSat orbits",
+            unit="orbit",
+        )
+        for future in completed:
             orbit_file = futures[future]
             try:
                 result = future.result()
@@ -631,6 +691,8 @@ def run_parallel(config: CropConfig, workers: int) -> int:
                 )
                 continue
             written += result.written
+            if hasattr(completed, "set_postfix"):
+                completed.set_postfix(chips=written, refresh=False)
             LOG.info(
                 "Parallel progress: orbit %s complete, total new chips=%d",
                 result.orbit,
