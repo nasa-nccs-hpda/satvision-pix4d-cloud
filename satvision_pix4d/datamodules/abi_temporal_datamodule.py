@@ -61,29 +61,39 @@ class ABITemporalDataModule(LightningDataModule):
     def train_dataloader(
         self,
     ):
+        loader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": self.shuffle,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "drop_last": self.drop_last,
+        }
+        if self.num_workers > 0:
+            loader_kwargs["persistent_workers"] = self.persistent_workers
+            loader_kwargs["prefetch_factor"] = 4
+
         return DataLoader(
             self.trainset,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            drop_last=self.drop_last,
-            persistent_workers=self.persistent_workers,
-            prefetch_factor=4
+            **loader_kwargs
         )
 
     def val_dataloader(
         self,
     ):
+        loader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "drop_last": self.drop_last,
+        }
+        if self.num_workers > 0:
+            loader_kwargs["persistent_workers"] = self.persistent_workers
+            loader_kwargs["prefetch_factor"] = 4
+
         return DataLoader(
             self.validset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            drop_last=self.drop_last,
-            persistent_workers=self.persistent_workers,
-            prefetch_factor=4
+            **loader_kwargs
         )
 
     def plot(*args, **kwargs):

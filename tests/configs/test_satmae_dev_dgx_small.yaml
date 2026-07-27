@@ -18,6 +18,10 @@ MODEL:
     DECODER_DEPTH: 8
     DECODER_NUM_HEADS: 16
     SAME_MASK: False
+    VISIBLE_LOSS_WEIGHT: 1.0           # dense decoder supervision for tiny overfit/debug runs
+    REFINE_PIXELS: True                # convolutional cleanup for patch-boundary artifacts
+    REFINEMENT_CHANNELS: 64
+    REFINEMENT_DEPTH: 3
 
 DATA:
   DATAMODULE: True

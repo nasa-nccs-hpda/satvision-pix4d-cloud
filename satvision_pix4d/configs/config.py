@@ -128,6 +128,14 @@ _C.MODEL.MAE_VIT.DECODER_DEPTH = 8
 _C.MODEL.MAE_VIT.DECODER_NUM_HEADS = 16
 _C.MODEL.MAE_VIT.SAME_MASK = False
 _C.MODEL.MAE_VIT.NORM_PIX_LOSS = False
+# Optional dense decoder supervision. Keep 0.0 for standard MAE; use >0 for
+# tiny overfit/debug runs where prediction-only reconstructions should sharpen.
+_C.MODEL.MAE_VIT.VISIBLE_LOSS_WEIGHT = 0.0
+# Optional pixel-space refinement head. This reduces patch-boundary artifacts by
+# letting a small convolutional head refine masked pixels after unpatchify.
+_C.MODEL.MAE_VIT.REFINE_PIXELS = False
+_C.MODEL.MAE_VIT.REFINEMENT_CHANNELS = 64
+_C.MODEL.MAE_VIT.REFINEMENT_DEPTH = 3
 
 # -----------------------------------------------------------------------------
 # Training settings

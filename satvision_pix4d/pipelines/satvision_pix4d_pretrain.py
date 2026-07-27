@@ -98,7 +98,7 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
         h, w = H // p, W // p
         m = mask_tokens.view(B, T, h, w)            # (B,T,h,w)
         m = m.unsqueeze(2)                          # (B,T,1,h,w)
-        m = m.repeat(1, 1, 1, p, 1, p).reshape(B, T, 1, H, W)  # (B,T,1,H,W)
+        m = m.repeat_interleave(p, dim=3).repeat_interleave(p, dim=4)  # (B,T,1,H,W)
         return m.float()
 
     def _merge_pred_with_visible(self, pred_tokens, gt_imgs_z):
@@ -114,9 +114,8 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
         gt_tokens = self.model.patchify(gt_imgs_z)              # (B,L,D)
         mask_tokens = self._last_mask_tokens                    # (B,L) 1=masked
 
-        full_tokens = gt_tokens.clone()
-        m = mask_tokens.bool().unsqueeze(-1).expand_as(full_tokens)
-        full_tokens[m] = pred_tokens[m]                         # replace masked with preds
+        m = mask_tokens.bool().unsqueeze(-1)
+        full_tokens = torch.where(m, pred_tokens, gt_tokens)     # replace masked with preds
         recon_z = self.model.unpatchify(full_tokens, T, H, W)
         return recon_z
 

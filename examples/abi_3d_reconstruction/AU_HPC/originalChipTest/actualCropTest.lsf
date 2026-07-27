@@ -1,0 +1,20 @@
+#!/bin/bash
+#BSUB -J actualCropTest # Name of the job
+#BSUB -o actualCropTest.out       # Where standard print statements go
+#BSUB -e actualCropTest.err       # Where errors are saved
+#BSUB -W 02:00                # Allow up to 30 minutes to run
+#BSUB -q normal               # Submit to the normal queue
+#BSUB -n 8                    # CPU cores needed
+#BSUB -R "rusage[mem=8000]"   # Request roughly 5GB of memory
+
+# 1. Initialize and activate your Conda environment
+source $HOME/miniconda3/etc/profile.d/conda.sh
+conda activate cropTest     
+
+# 2. Set your specific project folder and navigate to it
+project_dir="$HOME/NASA/satvision-pix4d/examples/abi_3d_reconstruction/originalChipTest/"
+cd $project_dir
+
+# 3. Run the Python script
+python crop_abi_multitemporal.py 2020 0
+
