@@ -138,15 +138,15 @@ class CloudSatAuxiliaryTransect:
             "dem_elevation": self.dem_elevation[indices],
             "temperature": self.temperature[indices],
             "specific_humidity": self.specific_humidity[indices],
-            "ec_height": self._ec_height_for_indices(indices),
+            # "ec_height": self._ec_height_for_indices(indices),
             "temperature_2m": self.temperature_2m[indices],
             "skin_temperature": self.skin_temperature[indices],
             "surface_pressure": self.surface_pressure[indices],
             "u10_velocity": self.u10_velocity[indices],
             "v10_velocity": self.v10_velocity[indices],
-            "aux_utc_time": self.utc_time[indices],
-            "aux_latitude": self.latitude[indices],
-            "aux_longitude": self.longitude[indices],
+            # "aux_utc_time": self.utc_time[indices],
+            # "aux_latitude": self.latitude[indices],
+            # "aux_longitude": self.longitude[indices],
         }
         return {f"cloudsat_{name}": value for name, value in result.items()}
 
