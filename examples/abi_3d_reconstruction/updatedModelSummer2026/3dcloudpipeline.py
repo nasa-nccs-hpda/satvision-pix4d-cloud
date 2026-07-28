@@ -1,3 +1,4 @@
+import os
 import torch
 import time
 import pytorch_lightning as L
@@ -100,9 +101,13 @@ class SlurmProgressCallback(L.Callback):
 """
 CONFIGURABLE PARAMETERS
 """
-# Note: Batch size should be much smaller for 3D CNNs to avoid Out of Memory errors.
-# We set it to 1, but we will accumulate gradients over 4 steps to simulate a batch size of 4.
-BATCH_SIZE = 1 
+# Training config is read from environment variables set by the submit script.
+# This allows the same Python file to work for both V100 (batch=1, 4 GPUs) and H100 (batch=4, 1 GPU).
+# Defaults are for single-GPU V100 if no env vars are set.
+BATCH_SIZE = int(os.environ.get("TRAIN_BATCH_SIZE", 1))
+NUM_DEVICES = int(os.environ.get("TRAIN_NUM_DEVICES", 1))
+DDP_STRATEGY = os.environ.get("TRAIN_STRATEGY", "auto")
+RESUME_CHECKPOINT = os.environ.get("RESUME_CHECKPOINT", None)
 LEARNING_RATE = 1e-4
 EPOCHS = 100
 SAVE_EVERY_N_EPOCHS = 5
@@ -158,12 +163,18 @@ if __name__ == '__main__':
     trainer = L.Trainer(
         max_epochs=EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=1,
-        accumulate_grad_batches=4,
+        devices=NUM_DEVICES,
+        strategy=DDP_STRATEGY,
         callbacks=[checkpoint_callback, best_checkpoint_callback, progress_callback],
         logger=loggers,
         default_root_dir=checkpointpath,
         enable_progress_bar=False,  # Disable tqdm - it doesn't work in Slurm log files
     )
 
-    trainer.fit(model=model, datamodule=datamodule)
+    print(f"Training config: BATCH_SIZE={BATCH_SIZE}, DEVICES={NUM_DEVICES}, STRATEGY={DDP_STRATEGY}")
+    if RESUME_CHECKPOINT:
+        print(f"Resuming training from checkpoint: {RESUME_CHECKPOINT}")
+        trainer.fit(model=model, datamodule=datamodule, ckpt_path=RESUME_CHECKPOINT)
+    else:
+        trainer.fit(model=model, datamodule=datamodule)
+

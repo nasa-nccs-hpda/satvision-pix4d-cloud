@@ -1,0 +1,118 @@
+﻿These are all the fields in one chip, along with their numpy.shape values
+
+
+ABI/chip (7, 512, 512, 16) - the entire ABI chip
+* Website that contains the bands: https://www.goes-r.gov/spacesegment/ABI-tech-summary.html
+* Bands have either a 0.5, 1, or 2 km spatial resolution, so if its anything other than 1 km, we up sample or down sample it to make it all the same resolution 
+ABI/offsets_minutes (7,)
+* An array that contains [-60 -40 -20   0  20  40  60] for 7 time steps
+ABI/valid_mask (7,)
+* An array that contains a 1 if the timestep is valid/present, and  0  if it is invalid/missing.
+ABI/scan_times (7,)
+* An array that contains the time for each abi timestep. Something like this:
+* ['2019-04-10T15:50:21+00:00' '2019-04-10T16:10:21+00:00' '2019-04-10T16:30:21+00:00' '2019-04-10T16:50:21+00:00’ '2019-04-10T17:10:20+00:00' '2019-04-10T17:30:20+00:00'  '2019-04-10T17:50:20+00:00']
+metadata_json ()
+* Metadata, many fields 
+* dict_keys(['abi_column', 'abi_common_grid_resolution_km', 'abi_geometry_source', 'abi_inner_disk_margin', 'abi_root', 'abi_row', 'abi_valid_fraction', 'center_latitude', 'center_longitude', 'chip_size', 'cloudsat_aux_source', 'cloudsat_center_profile', 'cloudsat_center_time', 'cloudsat_cloud_percentage', 'cloudsat_cloud_pixel_fraction', 'cloudsat_cloud_pixel_percentage', 'cloudsat_cloudy_profile_fraction', 'cloudsat_cloudy_profile_percentage', 'cloudsat_orbit', 'cloudsat_profile_selection', 'cloudsat_profiles_per_chip', 'cloudsat_source', 'cloudsat_valid_profile_fraction', 'metadata_groups', 'satellite', 'satellite_region', 'schema_version', 'transect_latitude_max', 'transect_latitude_min'])
+CloudSat/latitude (length_of_transect,)
+* An array that contains the lat coords along the transect. It’s length is equal to the number of clouds at footprints in the ABI chip. This varies due to the distortion of the ABI chips, and the method we are using to determine the range of clouds at footprints. Each footprint is 1.4x1.4 km in size
+* Method for finding the footprint: The cropping script follows the cloudsat transect along its path, and when it finds a time and place that is valid, it takes that point that it is on, and finds the ABI values that surround it in a 512x512 grid. Since we can find the lat and long of each abi pixel, we find the top and bottom of the abi chip, and take every cloudsat footprint in between those two points. 
+* Eventually we might downsample this to have all transects be the same amount of footprints?
+CloudSat/longitude (length_of_transect,)
+* Longitude values for cloudsat transect
+CloudSat/utc_hour (length_of_transect,)
+* The time at which each footprint was taken
+
+
+CloudSat/quality (length_of_transect,)
+*  The  CloudSat/quality  value in the output array is read directly from the CloudSat HDF product's  Data_quality  dataset. 
+* •  0 : Indicates good quality data (no issues detected during the radar ray/profile collection).                                                                                                                    
+*   • Non-zero integer values: Represent issues with the profile, decoded as a bit flag field.
+From this link
+If 0, then data is of good quality. 
+Otherwise, treat as a bit field with 8 flags: 
+0: RayStatus_validity not normal. 
+1: GPS data not valid.
+2: Temperatures not valid.
+3: Radar telemetry data quality is not normal.
+4: Peak power is not normal. 
+5: CPR calibration maneuver. 
+6: Missing frame. 
+7: Not used.
+
+
+
+
+CloudSat/cloud_layer_base (length_of_transect, 10)
+CloudSat/cloud_layer_top (length_of_transect, 10)
+CloudSat/cloud_layer_type (length_of_transect, 10)
+
+
+Each cloudsat footprint can only detect up to a maximum of 10 different cloud layers (In nature, it is incredibly rare to find more than 4 or 5 completely separated cloud layers stacked over a single point, so 10 being the max is fine). This maps to the 10 in the array shape. 
+
+
+What these three variables contain are the bottom (base) and top of each cloud detected, where cloud_layer_type is the cloud type detected. So, for a single cloudsat footprint, you might have 
+
+
+base: [[  0.37            2.2299986  -99.     -99.      -99.   -99.     -99.     -99.        -99.        -99.     ]]
+----------------------------------------------------------------------------------------------------
+top: [[  0.54999995   2.4099984  -99.     -99.     -99.    -99.    -99.      -99.       -99.        -99.     ]]
+----------------------------------------------------------------------------------------------------
+type: [[5 5 0 0 0 0 0 0 0 0]]
+
+
+This is an example output for the 3 variables for one cloudsat footprint. 
+
+
+Using this key:Values: 0 = clear 1 = cirrus; 2= altostratus; 3=altocumulus; 4=stratus; 5=stratocumulus; 6=cumulus; 7=nimbostratus; 8=deep convection  
+
+
+This could be interpreted as so: There is a stratocumulus cloud from 0.37km to 0.54km and another stratocumulus cloud from 2.23km to 2.41km
+
+
+-99 being nothing. 
+
+
+Using this information we can map this into the CloudSat/cloud_class variable with 500m spanning 20 km, resulting in 40 bins. 
+
+
+
+
+
+
+CloudSat/cloud_layer_count (length_of_transect,)
+* This is how many cloud layers were detected in each vertical profile.
+CloudSat/cloud_class (length_of_transect, 40)
+* From surface up, every 500 m, up to 20 km (this is why the second number is 40). Actual pixel height vary by adding in the cs_dem_elevation
+* Values: 0 = clear 1 = cirrus; 2= altostratus; 3=altocumulus; 4=stratus; 5=stratocumulus; 6=cumulus; 7=nimbostratus; 8=deep convection  
+*  Bin  0  = 0.0 to 0.5 km altitude
+*  Bin  1  = 0.5 to 1.0 km altitude
+*   ...
+*   Bin  39  = 19.5 to 20.0 km altitude
+CloudSat/cloud_binary_mask (length_of_transect, 40)
+* 0=clear 1= cloud
+CloudSat/profile_valid (length_of_transect,)
+* If the cloudsat profile is valid? 1 for valid, 0 for invalid
+CloudSat/abi_row (length_of_transect,) and CloudSat/abi_column (length_of_transect,)
+* Contains the abi row and column that cloudsat footprint falls on
+* These are extremely important for the training since it tells us where the chip and the transect line up
+CloudSat/profile_index (length_of_transect,)
+* The profile index (not exactly sure what this means though?)
+CloudSat/pressure (length_of_transect, 40)
+* The weight of the air pushing down on a certain area.
+CloudSat/dem_elevation (length_of_transect,)
+* The elevation of the surface 
+CloudSat/temperature (length_of_transect, 40)
+* The weight of the air pushing down on a certain area.
+CloudSat/specific_humidity (length_of_transect, 40)
+* The amount of water vapor in the air compared to the total air weight.
+CloudSat/temperature_2m (length_of_transect,)
+* The air temperature exactly two meters above the ground. This is the standard height for human weather reports.
+CloudSat/skin_temperature (length_of_transect,)
+* The temperature of the very top layer of the Earth's surface (like the skin of the land or ocean).
+CloudSat/surface_pressure (length_of_transect,)
+* The atmospheric pressure measured at the ground level instead of high up in the sky.
+CloudSat/u10_velocity (length_of_transect,)
+* The speed of the wind blowing from west to east, measured 10 meters above the surface.
+CloudSat/v10_velocity (length_of_transect,)
+* The speed of the wind blowing from south to north, measured 10 meters above the surface.

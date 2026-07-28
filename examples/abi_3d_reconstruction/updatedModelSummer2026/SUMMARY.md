@@ -28,12 +28,26 @@ The original pipeline processed 14-channel, 2D chips (128x128). The pipeline has
 
 ### 4. Training & Execution (`3dcloudpipeline.py`)
 *   A clean PyTorch Lightning training script that stitches the updated datamodule and `UNET3D` model together.
-*   **OOM Prevention**: The script is configured with `BATCH_SIZE = 1` to prevent CUDA Out Of Memory errors when passing the massive 4D tensors through the 3D convolutions on 32GB GPUs. It uses `accumulate_grad_batches=4` in PyTorch Lightning to simulate an effective batch size of 4 for training stability without the memory overhead.
-*   **Logging**: Uses `CSVLogger` (omitted TensorBoard to avoid dependency issues on the cluster) to log epoch metrics directly into `./checkpoints/unet3d_baseline/`.
+*   **Configurable via Environment Variables**: Batch size, device count, and DDP strategy are read from environment variables (`TRAIN_BATCH_SIZE`, `TRAIN_NUM_DEVICES`, `TRAIN_STRATEGY`) set by the submit scripts. This allows the same Python file to work for both V100 multi-GPU and H100 single-GPU configurations.
+*   **OOM Prevention**: On V100s (32GB VRAM), `BATCH_SIZE=1` with 4-GPU DDP gives an effective batch size of 4. On H100s (96GB VRAM), `BATCH_SIZE=8` runs directly on a single GPU.
+*   **Logging**: Uses both `CSVLogger` and `TensorBoardLogger` to log epoch metrics into `./checkpoints/unet3d_baseline/`. A custom `SlurmProgressCallback` prints plain-text batch progress every 100 batches for Slurm log file readability.
+*   **Metric Sync**: All `self.log()` calls use `sync_dist=True` to properly average metrics across GPUs during DDP training.
 *   **Imports**: Upgraded all `import lightning` syntax to `import pytorch_lightning` to support the specific older Lightning package installed in the ADAPT environment.
 
-### 5. Slurm Submission (`submit_training.sh`)
-*   A custom Slurm script engineered for the NASA ADAPT cluster.
-*   **Environment**: Actively bypasses the Singularity container (which wasn't built locally) in favor of seamlessly loading a pre-configured, working Conda environment (`ilab-pytorch`).
-*   **Architecture Matching**: Intentionally avoids the `grace` partition (which uses ARM architecture incompatible with the x86 `ilab-pytorch` python binary) and allows Slurm to auto-assign a standard x86 GPU node instead.
-*   **Direct Execution**: Runs `python3` natively inside the activated shell (avoiding `srun`) to guarantee the Conda environment variables are correctly inherited by the training process.
+### 5. Slurm Submission (Two Configurations)
+Two submit scripts are provided for the NASA ADAPT cluster, both using the project's official Singularity container:
+
+*   **`submit_training_v100.sh`** — Multi-GPU DDP on V100s:
+    *   Runs on the `compute` partition (default) with 4× V100 32GB GPUs.
+    *   Uses `docker://nasanccs/satvision-pix4d:v100` container (x86/amd64 only).
+    *   Launches via `srun --cpu-bind=none` for DDP multi-task execution.
+    *   `BATCH_SIZE=1` per GPU, 4 GPUs = effective batch size of 4.
+    *   Estimated epoch time: ~2.75 hours.
+
+*   **`submit_training_h100.sh`** — Single H100 on Grace Hopper:
+    *   Runs on the `grace` partition with 1× H100 96GB GPU.
+    *   Uses `docker://nasanccs/satvision-pix4d:latest` container (multi-arch: amd64 + arm64).
+    *   The `grace` partition nodes (`gh[001-062]`) are NVIDIA Grace Hopper (ARM CPU + H100 GPU), so the ARM-compatible `:latest` container is required.
+    *   `BATCH_SIZE=8`, single GPU, no DDP needed.
+    *   Estimated epoch time: ~47 minutes (~3.5× faster than 4× V100).
+    *   Patches `huggingface-hub` at runtime alongside numpy to fix a dependency mismatch in the `:latest` container.

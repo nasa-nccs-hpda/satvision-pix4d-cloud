@@ -16,7 +16,8 @@ LATLONDATA = "/explore/nobackup/projects/pix4dcloud/jgong/ABI_EAST_GEO_TOPO_LOMS
 CLOUDSATPATH = '/explore/nobackup/projects/pix4dcloud/szhang16/cloudsat/'
 ROOT_DIR = '/explore/nobackup/projects/pix4dcloud/szhang16/cloudsat/2B-CLDCLASS-LIDAR'
 ABIDATA = "/css/geostationary/NonOptimized/L1/GOES-16-ABI-L1B-FULLD/" #"/css/geostationary/BackStage/GOES-16-ABI-L1B-FULLD/"
-SAVEDIR = '/explore/nobackup/projects/pix4dcloud/jacaraba/tests/abi-crop-test'
+# SAVEDIR = '/explore/nobackup/projects/pix4dcloud/jacaraba/tests/abi-crop-test'
+SAVEDIR = '/explore/nobackup/projects/pix4dcloud/aliewehr/abi_chip_output'
 
 # Multi-timestep configuration
 OFFSETS_MINUTES = [-40, -20, 0, 20, 40]   # every 20 min centered on CloudSat time
@@ -546,7 +547,33 @@ def processFile(yy, ddn, orbit, latb):
         if i + 46 >= N:
             break
 
-        dRange = np.arange(i + 46, i - 45, -1)
+        # 1. Define the chip boundaries using the returned coords
+        y_start = coords[0] - CHIP_HALF_SIZE
+        y_end = coords[0] + CHIP_HALF_SIZE
+        x_start = coords[1] - CHIP_HALF_SIZE
+        x_end = coords[1] + CHIP_HALF_SIZE
+
+        # 2. Slice the global lat/lon arrays to get the exact coordinates of the chip
+        chip_lats = abiLat[y_start:y_end, x_start:x_end]
+        chip_lons = abiLong[y_start:y_end, x_start:x_end]
+
+        # 3. Find the geographic bounding box of this specific chip
+        lat_min, lat_max = chip_lats.min(), chip_lats.max()
+        lon_min, lon_max = chip_lons.min(), chip_lons.max()
+
+        # 4. Find all CloudSat profiles that fall inside this bounding box
+        valid_indices = np.where(
+            (Latitude >= lat_min) & (Latitude <= lat_max) &
+            (Longitude >= lon_min) & (Longitude <= lon_max)
+        )[0]
+
+        # Skip if no valid CloudSat profiles overlap (e.g. track barely clips corner and misses profiles)
+        if len(valid_indices) == 0:
+            i += 45
+            continue
+
+        # 5. Reverse the array to match the backwards sequential order of the original hardcoded dRange
+        dRange = valid_indices[::-1]
 
         print("Generating dictionary")
         aux_data = {

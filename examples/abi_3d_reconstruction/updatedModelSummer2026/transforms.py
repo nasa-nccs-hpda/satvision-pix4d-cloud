@@ -24,5 +24,8 @@ class SimpleMinMaxScale(object):
 
         # Clip values to [0, 1] just to be safe
         img = np.clip(img, 0.0, 1.0)
+        
+        # Replace any missing NaN data with 0.0 so the model loss doesn't become NaN
+        img = np.nan_to_num(img, nan=0.0)
 
         return img

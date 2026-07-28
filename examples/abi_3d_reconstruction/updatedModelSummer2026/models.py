@@ -100,14 +100,14 @@ class LightningModel(L.LightningModule):
         
         loss = self.ce_loss(logits, masks)
         
-        self.log(f'{stage}_loss', loss, prog_bar=True, on_epoch=True, on_step=False)
+        self.log(f'{stage}_loss', loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
         output = {"loss": loss}
         
         if stage == 'val' or stage == 'test':
             preds = torch.argmax(logits, dim=1) # Get the class with highest probability
             iou = self.iou(preds, masks)
             
-            self.log(f'{stage}_iou', iou, prog_bar=True, on_epoch=True, on_step=False)
+            self.log(f'{stage}_iou', iou, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
             if stage == 'test':
                 output["iou"] = iou
         return output
