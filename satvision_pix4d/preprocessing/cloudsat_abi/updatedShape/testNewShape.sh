@@ -23,7 +23,7 @@ PYTHONPATH=/panfs/ccds02/nobackup/people/aliewehr/satvision-pix4d \
 python /panfs/ccds02/nobackup/people/aliewehr/satvision-pix4d/satvision_pix4d/preprocessing/cloudsat_abi/updatedShape/cloudsat_abi_cropping_cli.py \
   --abi-root /css/geostationary/NonOptimized/L1/GOES-16-ABI-L1B-FULLD \
   --cloudsat-root /explore/nobackup/projects/pix4dcloud/szhang16/cloudsat \
-  --output-dir /explore/nobackup/projects/pix4dcloud/aliewehr/chipTests/newShapeChips/test2 \
+  --output-dir /explore/nobackup/projects/pix4dcloud/aliewehr/chipTests/newShapeChips/test6 \
   --offsets -60 -40 -20 0 20 40 60 \
   --year 2019 \
   --satellite goes16 \

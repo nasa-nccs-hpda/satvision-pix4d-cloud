@@ -12,11 +12,11 @@ from satvision_pix4d.preprocessing.cloudsat_abi.updatedShape import (
     CropConfig,
     get_satellite,
 )
-from satvision_pix4d.preprocessing.cloudsat_abi.updatedShape.config import (
+from satvision_pix4d.preprocessing.cloudsat_abi.updatedShape.pipeline import (
     SATELLITES,
-    DEFAULT_GEOMETRY_DIR
+    DEFAULT_GEOMETRY_DIR,
+    run_parallel,
 )
-from satvision_pix4d.preprocessing.cloudsat_abi.updatedShape.pipeline import run_parallel
 
 LOG = logging.getLogger(__name__)
 
@@ -130,10 +130,25 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--min-abi-valid-fraction", type=float, default=0.95,
+        help="Minimum fraction of non-NaN ABI pixels required per timestep."
+    )
+    parser.add_argument(
+        "--min-valid-timesteps", type=int, default=7,
+        help="Minimum number of temporal offsets that must have valid ABI data."
+    )
+    parser.add_argument(
         "--require-cloud", action="store_true",
         help="Also skip valid CloudSat segments containing no classified cloud.",
     )
-    parser.add_argument("--allow-missing-timesteps", action="store_true")
+    parser.add_argument(
+        "--allow-missing-timesteps", action="store_true", default=True,
+        help="Tolerate missing ABI scans (default: True).",
+    )
+    parser.add_argument(
+        "--disallow-missing-timesteps", action="store_false", dest="allow_missing_timesteps",
+        help="Do not tolerate missing ABI scans.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--workers", type=int, default=1,
@@ -194,6 +209,8 @@ def config_from_args(args: argparse.Namespace) -> CropConfig:
         min_valid_fraction=args.min_valid_fraction,
         inner_disk_margin=args.inner_disk_margin,
         min_cloudsat_valid_fraction=args.min_cloudsat_valid_fraction,
+        min_abi_valid_fraction=args.min_abi_valid_fraction,
+        min_valid_timesteps=args.min_valid_timesteps,
         require_cloud=args.require_cloud,
         allow_missing_timesteps=args.allow_missing_timesteps,
         overwrite=args.overwrite,

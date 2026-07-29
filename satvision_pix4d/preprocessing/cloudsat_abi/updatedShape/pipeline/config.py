@@ -82,8 +82,19 @@ class CropConfig:
     min_valid_fraction: float = 1.0
     inner_disk_margin: int = 1600
     min_cloudsat_valid_fraction: float = 1.0
+    # Minimum fraction of non-NaN ABI pixels per timestep (across all
+    # 512 footprints × 16 channels). Timesteps below this are marked
+    # invalid. Chips where too few timesteps survive are rejected.
+    min_abi_valid_fraction: float = 0.95
+    # Minimum number of temporal offsets that must have valid ABI data.
+    # With 7 offsets and min_valid_timesteps=7, all must succeed (matching
+    # the old pipeline's behavior). Lower to e.g. 5 to tolerate gaps.
+    min_valid_timesteps: int = 7
     require_cloud: bool = False
-    allow_missing_timesteps: bool = False
+    # Tolerate individual missing ABI scans (fill with NaN) instead of
+    # rejecting the entire sample. Combined with min_valid_timesteps to
+    # control how many gaps are acceptable.
+    allow_missing_timesteps: bool = True
     overwrite: bool = False
     max_chips: int | None = None
     progress: bool = False
@@ -107,6 +118,15 @@ class CropConfig:
             raise ValueError("inner_disk_margin cannot be negative")
         if not 0 <= self.min_cloudsat_valid_fraction <= 1:
             raise ValueError("min_cloudsat_valid_fraction must be in [0, 1]")
+        if not 0 <= self.min_abi_valid_fraction <= 1:
+            raise ValueError("min_abi_valid_fraction must be in [0, 1]")
+        if self.min_valid_timesteps < 0:
+            raise ValueError("min_valid_timesteps cannot be negative")
+        if self.min_valid_timesteps > len(self.offsets):
+            raise ValueError(
+                f"min_valid_timesteps ({self.min_valid_timesteps}) cannot "
+                f"exceed the number of offsets ({len(self.offsets)})"
+            )
         unknown = self.metadata - {"cloudsat", "cloudsat_aux"}
         if unknown:
             raise ValueError(f"Unsupported metadata groups: {sorted(unknown)}")

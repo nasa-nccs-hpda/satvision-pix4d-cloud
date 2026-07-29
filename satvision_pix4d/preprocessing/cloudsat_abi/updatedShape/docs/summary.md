@@ -28,4 +28,8 @@ Each sample is saved as an `.npz` file containing:
 * `CloudSat/*`: Assorted auxiliary and metadata arrays for the 512 footprints.
 
 ## Recent Changes
-The pipeline was recently refactored to eliminate legacy 2D square-chip cropping logic (e.g., bounding boxes, uniform grid crops) in favor of direct 1D native-coordinate advanced indexing. Legacy integration with MERRA-2 data was completely stripped out to simplify the codebase.
+* **Codebase Reorganization**: The repository was restructured into logical subdirectories (`pipeline/`, `logs/`, `visualization/`, `docs/`) to improve maintainability.
+* **VZA Optimization**: The View Zenith Angle array shape was optimized from `(7, 512)` to `(512, 1)`, taking advantage of temporal constancy to save disk space.
+* **Fill Value Masking (NetCDF MaskedArrays)**: Fixed an issue where the pipeline was exporting chips heavily populated with netCDF fill values (e.g., `1023`, `4095`, `16383`). The extraction logic in `abi.py` now leverages `np.ma.filled(..., np.nan)` to natively translate netCDF `MaskedArray` missing data into `NaN` while preserving correctly scaled valid raw radiance values. 
+* **Timestep Validation**: The assembly step in `pipeline.py` was enhanced to enforce timestep-level quality. Any 512-profile timestep containing exclusively `NaN` values (due to missing data or fill-value masking) is now correctly flagged with `valid_mask=0`.
+* **Legacy Refactoring**: The pipeline was previously refactored to eliminate legacy 2D square-chip cropping logic (e.g., bounding boxes, uniform grid crops) in favor of direct 1D native-coordinate advanced indexing. Legacy integration with MERRA-2 data was completely stripped out to simplify the codebase.

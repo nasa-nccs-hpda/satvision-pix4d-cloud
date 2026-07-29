@@ -1,11 +1,11 @@
 """CloudSat and GOES ABI collocation components."""
 
-from .config import (
+from .pipeline.config import (
     CropConfig,
     SatelliteSpec,
     get_satellite,
 )
-from .pipeline import (
+from .pipeline.pipeline import (
     CloudSatABICollocationPipeline,
 )
 

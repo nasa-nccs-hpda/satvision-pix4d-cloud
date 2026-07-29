@@ -252,6 +252,10 @@ class CloudSatABICollocationPipeline:
             or "geometry grid" in message
         ):
             return "abi_geometry"
+        if "abi pixel" in message or "abi valid" in message:
+            return "abi_quality"
+        if "valid timesteps" in message:
+            return "abi_temporal"
         if "track" in message or "profiles cross" in message:
             return "cloudsat_track"
         return type(exc).__name__.lower()
@@ -339,6 +343,25 @@ class CloudSatABICollocationPipeline:
         )
         abi_rows = profile_pixels[:, 0]
         abi_cols = profile_pixels[:, 1]
+
+        # ── Step 4b: Inner disk margin check ───────────────────────────────
+        # Verify that ALL 512 footprint pixels are well within the ABI grid,
+        # not just the center. This filters out transects that clip the limb.
+        if self.config.inner_disk_margin > 0:
+            grid_rows, grid_cols = self.abi.geometry.latitude.shape
+            margin = self.config.inner_disk_margin
+            outside = (
+                (abi_rows < margin)
+                | (abi_rows >= grid_rows - margin)
+                | (abi_cols < margin)
+                | (abi_cols >= grid_cols - margin)
+            )
+            n_outside = int(np.sum(outside))
+            if n_outside > 0:
+                raise ValueError(
+                    f"{n_outside} of {segment_len} footprints are outside "
+                    f"the inner disk margin of {margin} pixels"
+                )
 
         if "cloudsat" in self.config.metadata:
             auxiliary["cloudsat_abi_row"] = abi_rows
@@ -437,16 +460,38 @@ class CloudSatABICollocationPipeline:
         auxiliary["abi_solar_zenith_angle"] = solar_zenith_angle
         auxiliary["abi_view_zenith_angle"] = view_zenith_angle[:, np.newaxis]
 
+        # ── Step 8: Timestep-level validation ──────────────────────────────
+        # After pixel-level masking (done in extract_transect), check each
+        # timestep. If every pixel across all channels is NaN (entirely
+        # out-of-bounds or fill), mark that timestep invalid and ensure
+        # all its values are explicitly NaN.
+        #
+        # Additionally, check that each timestep has enough valid (non-NaN)
+        # ABI pixels to meet the min_abi_valid_fraction threshold.
+        stacked = np.stack(chips).astype(np.float32)
+        valid_arr = np.asarray(valid, dtype=np.int8)
+        for t in range(stacked.shape[0]):
+            finite_fraction = float(np.mean(np.isfinite(stacked[t])))
+            if finite_fraction < self.config.min_abi_valid_fraction:
+                valid_arr[t] = 0
+                stacked[t] = np.nan
 
+        # Check that enough timesteps survived validation.
+        n_valid = int(valid_arr.sum())
+        if n_valid < self.config.min_valid_timesteps:
+            raise ValueError(
+                f"Only {n_valid} of {len(valid_arr)} timesteps have valid "
+                f"ABI data; required {self.config.min_valid_timesteps}"
+            )
 
         # ── Step 9: Assemble and return the collocated sample ──────────────
-        # np.stack(chips) produces shape (7, 512, 16). The dummy spatial
-        # dimension for the 3D U-Net is added later in the writer.
+        # stacked has shape (7, 512, 16). The dummy spatial dimension for
+        # the 3D U-Net is added later in the writer.
         return CollocatedChip(
             filename=filename,
-            chip=np.stack(chips).astype(np.float32),
+            chip=stacked,
             offsets_minutes=np.asarray(self.config.offsets, dtype=np.int32),
-            valid_mask=np.asarray(valid, dtype=np.int8),
+            valid_mask=valid_arr,
             scan_times=np.asarray(scan_times),
             metadata=metadata,
             auxiliary_arrays=auxiliary,

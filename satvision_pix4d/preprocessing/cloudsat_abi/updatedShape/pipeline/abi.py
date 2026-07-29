@@ -478,14 +478,15 @@ class ABIArchive:
 
                         min_r, max_r = native_rows.min(), native_rows.max()
                         min_c, max_c = native_cols.min(), native_cols.max()
-                        bbox_data = np.asarray(
-                            rad[min_r:max_r + 1, min_c:max_c + 1], 
-                            dtype=np.float32
-                        )
+                        bbox_masked = rad[min_r:max_r + 1, min_c:max_c + 1]
+                        bbox_data = np.ma.filled(bbox_masked, np.nan).astype(np.float32)
                         pixel_values = bbox_data[
                             native_rows - min_r, 
                             native_cols - min_c
                         ]
+
+                        # Return raw radiance values (no unit conversion),
+                        # identical to the original pipeline's behavior.
 
                     # Store this channel's values in the corresponding
                     # column of the output array. Channels are 1-indexed
