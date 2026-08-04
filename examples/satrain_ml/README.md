@@ -13,13 +13,7 @@ dataset.
 - `baseline_model/`, `abi_only/`, `transformer_model/` - Each has the
   same internal shape: model code, a training/submit script, `checkpoints/`, `logs/`
   (TensorBoard/Lightning logs), `figures/`, and analysis notebooks. See each folder's own README.
-- `poster_figures/` - final poster figures.
-- `diagnostics/` - diagnostic figs.
-  See `diagnostics/README.md`.
-- `PlotNeuralNet/` - Tool used to draw the architecture diagrams
-  in `poster_figures/`.
 - `envs/` - conda environment exports (see below).
-- `Testing.ipynb` - scratch notebook.
 
 ## Data paths
 
