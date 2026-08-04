@@ -1,0 +1,188 @@
+\documentclass[border=8pt, multi, tikz]{standalone}
+\usepackage{import}
+\subimport{../layers/}{init}
+\usetikzlibrary{positioning}
+\usetikzlibrary{arrows.meta}
+
+% ---------------------------------------------------------------------------
+% Explicit blue palette (reliable, not rgb-mix)
+% ---------------------------------------------------------------------------
+\definecolor{ConvBlue}{HTML}{6FA8DC}     % conv body, medium blue
+\definecolor{ReluBlue}{HTML}{2E6DA4}     % relu band, deep blue
+\definecolor{PoolNavy}{HTML}{1F3E68}     % maxpool, navy
+\definecolor{UpTeal}{HTML}{3FA7A7}       % upsample, teal
+\definecolor{CatCyan}{HTML}{9ED9E8}      % concat balls, light cyan-blue
+\definecolor{HeadPurp}{HTML}{5B4B8A}     % output heads, blue-violet
+
+\def\ConvColor{ConvBlue}
+\def\ConvReluColor{ReluBlue}
+\def\PoolColor{PoolNavy}
+\def\UnpoolColor{UpTeal}
+\def\ConcatColor{CatCyan}
+\def\HeadColor{HeadPurp}
+
+\newcommand{\copymidarrow}{\tikz \draw[-Stealth,line width=0.8mm,draw=ReluBlue] (-0.3,0) -- ++(0.3,0);}
+
+\begin{document}
+\begin{tikzpicture}
+\tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
+\tikzstyle{copyconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw=ReluBlue,opacity=0.7]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% INPUT LABEL
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\node[align=center, font=\small\bfseries, text=ReluBlue] at (-2.4, 1.6, 0)
+  {Input\\35$\times$64$\times$64};
+\node[align=center, font=\scriptsize, text=black!70] at (-2.4, -0.5, 0)
+  {13 GMI\\+ 16 ABI\\+ 6 anc};
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ENCODER  (spatial 64 -> 32 -> 16 -> 8 -> 4, gentle descent)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Stem: 35 -> 32 at 64x64
+\pic[shift={(0,0,0)}] at (0,0,0) {RightBandedBox={name=cr1,%
+        xlabel={{"32",""}},zlabel=64,caption=Stem,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=36,width={2,2},depth=36}};
+\pic[shift={(1.3,-4,0)}] at (cr1-east) {Box={name=p1,%
+        fill=\PoolColor,opacity=0.7,height=30,width=1,depth=30}};
+
+% enc2: 32 @ 32x32
+\pic[shift={(0,0,0)}] at (p1-east) {RightBandedBox={name=cr2,%
+        xlabel={{"32",""}},zlabel=32,caption=ResNet,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=30,width={2.5,2.5},depth=30}};
+\pic[shift={(1.3,-3.5,0)}] at (cr2-east) {Box={name=p2,%
+        fill=\PoolColor,opacity=0.7,height=24,width=1,depth=24}};
+
+% enc3: 64 @ 16x16
+\pic[shift={(0,0,0)}] at (p2-east) {RightBandedBox={name=cr3,%
+        xlabel={{"64",""}},zlabel=16,caption=ResNet,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=24,width={3.2,3.2},depth=24}};
+\pic[shift={(1.3,-3,0)}] at (cr3-east) {Box={name=p3,%
+        fill=\PoolColor,opacity=0.7,height=18,width=1,depth=18}};
+
+% enc4: 128 @ 8x8
+\pic[shift={(0,0,0)}] at (p3-east) {RightBandedBox={name=cr4,%
+        xlabel={{"128",""}},zlabel=8,caption=ResNet,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=18,width={4.5,4.5},depth=18}};
+\pic[shift={(1.3,-2.5,0)}] at (cr4-east) {Box={name=p4,%
+        fill=\PoolColor,opacity=0.7,height=12,width=1,depth=12}};
+
+% enc5: 256 @ 4x4
+\pic[shift={(0,0,0)}] at (p4-east) {RightBandedBox={name=cr5,%
+        xlabel={{"256",""}},zlabel=4,caption=ResNet,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=12,width={6,6},depth=12}};
+\pic[shift={(1.3,-2,0)}] at (cr5-east) {Box={name=p5,%
+        fill=\PoolColor,opacity=0.7,height=8,width=1,depth=8}};
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% BOTTLENECK  (512 @ 2x2)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\pic[shift={(0,0,0)}] at (p5-east) {RightBandedBox={name=cr6,%
+        xlabel={{"512",""}},zlabel=2,caption=Bottleneck,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=8,width={8,8},depth=8}};
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% DECODER  (2 -> 4 -> 8 -> 16 -> 32 -> 64, gentle rise)
+%% concat balls placed with PURE VERTICAL offset above each decoder box
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% up1 -> 4x4, dec 256
+\pic[shift={(1.6,2,0)}] at (cr6-east) {Box={name=up1,%
+        fill=\UnpoolColor,opacity=0.7,height=12,width=1,depth=12}};
+\pic[shift={(0,0,0)}] at (up1-east) {RightBandedBox={name=ucr1,%
+        xlabel={{"256",""}},zlabel=4,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=12,width={6,6},depth=12}};
+\pic[shift={(0,3,0)}] at (ucr1-anchor) {Ball={name=cat1,%
+        fill=\ConcatColor,opacity=0.75,radius=2,logo=$\|$}};
+
+% up2 -> 8x8, dec 128
+\pic[shift={(1.3,2.5,0)}] at (ucr1-east) {Box={name=up2,%
+        fill=\UnpoolColor,opacity=0.7,height=18,width=1,depth=18}};
+\pic[shift={(0,0,0)}] at (up2-east) {RightBandedBox={name=ucr2,%
+        xlabel={{"128",""}},zlabel=8,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=18,width={4.5,4.5},depth=18}};
+\pic[shift={(0,3,0)}] at (ucr2-anchor) {Ball={name=cat2,%
+        fill=\ConcatColor,opacity=0.75,radius=2,logo=$\|$}};
+
+% up3 -> 16x16, dec 64
+\pic[shift={(1.3,3,0)}] at (ucr2-east) {Box={name=up3,%
+        fill=\UnpoolColor,opacity=0.7,height=24,width=1,depth=24}};
+\pic[shift={(0,0,0)}] at (up3-east) {RightBandedBox={name=ucr3,%
+        xlabel={{"64",""}},zlabel=16,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=24,width={3.2,3.2},depth=24}};
+\pic[shift={(0,3,0)}] at (ucr3-anchor) {Ball={name=cat3,%
+        fill=\ConcatColor,opacity=0.75,radius=2,logo=$\|$}};
+
+% up4 -> 32x32, dec 32
+\pic[shift={(1.3,3.5,0)}] at (ucr3-east) {Box={name=up4,%
+        fill=\UnpoolColor,opacity=0.7,height=30,width=1,depth=30}};
+\pic[shift={(0,0,0)}] at (up4-east) {RightBandedBox={name=ucr4,%
+        xlabel={{"32",""}},zlabel=32,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=30,width={2.5,2.5},depth=30}};
+\pic[shift={(0,3,0)}] at (ucr4-anchor) {Ball={name=cat4,%
+        fill=\ConcatColor,opacity=0.75,radius=2,logo=$\|$}};
+
+% up5 -> 64x64, dec 32
+\pic[shift={(1.3,4,0)}] at (ucr4-east) {Box={name=up5,%
+        fill=\UnpoolColor,opacity=0.7,height=36,width=1,depth=36}};
+\pic[shift={(0,0,0)}] at (up5-east) {RightBandedBox={name=ucr5,%
+        xlabel={{"32",""}},zlabel=64,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,%
+        height=36,width={2.5,2.5},depth=36}};
+\pic[shift={(0,3,0)}] at (ucr5-anchor) {Ball={name=cat5,%
+        fill=\ConcatColor,opacity=0.75,radius=2,logo=$\|$}};
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% OUTPUT HEADS (three 1x1-conv heads @ 64x64)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\pic[shift={(2.0,0,0)}] at (ucr5-east) {Box={name=out,caption=3 heads,%
+        zlabel=64,fill=\HeadColor,height=36,width=2,depth=36}};
+
+\node[align=left, font=\scriptsize, text=black!80, anchor=west] at (out-east)
+  [xshift=6pt]
+  {surface\_precip \, (log1p)\\ P(precip) \quad\;\;\, (BCE)\\ P(heavy) \quad\;\; (BCE)};
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% FORWARD CONNECTIONS (encoder into pools)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\path (cr1-east) -- (p1-west|-cr1-west) coordinate[pos=0.5] (m1);
+\path (cr2-east) -- (p2-west|-cr2-west) coordinate[pos=0.5] (m2);
+\path (cr3-east) -- (p3-west|-cr3-west) coordinate[pos=0.5] (m3);
+\path (cr4-east) -- (p4-west|-cr4-west) coordinate[pos=0.5] (m4);
+\path (cr5-east) -- (p5-west|-cr5-west) coordinate[pos=0.5] (m5);
+
+\draw[connection](cr1-east)--node{\midarrow}(m1)--node{\midarrow}(p1-west-|m1)--node{\midarrow}(p1-west);
+\draw[connection](cr2-east)--node{\midarrow}(m2)--node{\midarrow}(p2-west-|m2)--node{\midarrow}(p2-west);
+\draw[connection](cr3-east)--node{\midarrow}(m3)--node{\midarrow}(p3-west-|m3)--node{\midarrow}(p3-west);
+\draw[connection](cr4-east)--node{\midarrow}(m4)--node{\midarrow}(p4-west-|m4)--node{\midarrow}(p4-west);
+\draw[connection](cr5-east)--node{\midarrow}(m5)--node{\midarrow}(p5-west-|m5)--node{\midarrow}(p5-west);
+
+\draw[connection](cr6-east)--node{\midarrow}(up1-west);
+\draw[connection](ucr5-east)--node{\midarrow}(out-west);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% SKIP CONNECTIONS  (encoder -> ball -> decoder ; drop-line ball -> decoder)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\draw[copyconnection](cr5-east)--node{\copymidarrow}(cat1-west);
+\draw[copyconnection](cr4-east)--node{\copymidarrow}(cat2-west);
+\draw[copyconnection](cr3-east)--node{\copymidarrow}(cat3-west);
+\draw[copyconnection](cr2-east)--node{\copymidarrow}(cat4-west);
+\draw[copyconnection](cr1-east)--node{\copymidarrow}(cat5-west);
+
+\draw[copyconnection](cat1-south)--node{\copymidarrow}(ucr1-north);
+\draw[copyconnection](cat2-south)--node{\copymidarrow}(ucr2-north);
+\draw[copyconnection](cat3-south)--node{\copymidarrow}(ucr3-north);
+\draw[copyconnection](cat4-south)--node{\copymidarrow}(ucr4-north);
+\draw[copyconnection](cat5-south)--node{\copymidarrow}(ucr5-north);
+
+\end{tikzpicture}
+\end{document}

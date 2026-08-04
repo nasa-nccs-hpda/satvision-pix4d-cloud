@@ -1,0 +1,213 @@
+\documentclass[border=8pt, multi, tikz]{standalone}
+\usepackage{import}
+\subimport{../layers/}{init}
+\usetikzlibrary{positioning}
+\usetikzlibrary{arrows.meta}
+\usetikzlibrary{bending}
+
+% ---------------------------------------------------------------------------
+% Blue palette (matches the U-Net figure)
+% ---------------------------------------------------------------------------
+\definecolor{ConvBlue}{HTML}{D98E5C}
+\definecolor{ReluBlue}{HTML}{A85F30}
+\definecolor{PoolNavy}{HTML}{5C4470}
+\definecolor{UpTeal}{HTML}{8E6BA8}
+\definecolor{SkipBlue}{HTML}{E0A972}
+\definecolor{HeadPurp}{HTML}{6E4E8C}
+\definecolor{AttnBlue}{HTML}{C9AED4}
+\definecolor{AttnBand}{HTML}{7A5A94}
+\definecolor{StaticGrn}{HTML}{D9AD7C}
+\definecolor{StaticBand}{HTML}{A8703F}
+
+\def\ConvColor{ConvBlue}
+\def\ConvReluColor{ReluBlue}
+\def\PoolColor{PoolNavy}
+\def\UnpoolColor{UpTeal}
+\def\HeadColor{HeadPurp}
+\def\AttnColor{AttnBlue}
+\def\AttnBandColor{AttnBand}
+\def\StaticColor{StaticGrn}
+\def\StaticBandColor{StaticBand}
+
+\newcommand{\copymidarrow}{\tikz \draw[-Stealth,line width=0.7mm,draw=SkipBlue] (-0.3,0) -- ++(0.3,0);}
+\newcommand{\staticarrow}{\tikz \draw[-Stealth,line width=0.7mm,draw=\StaticBandColor] (-0.3,0) -- ++(0.3,0);}
+
+% ---------------------------------------------------------------------------
+% STATIC ENCODER POSITION -- edit these two numbers directly and recompile.
+% X = horizontal position, Y = vertical position (more negative = lower).
+% Nothing else in the file depends on these except the box itself and its
+% label/connector, so this is the only thing you need to touch.
+% ---------------------------------------------------------------------------
+\def\StaticX{42}
+\def\StaticY{-6}
+
+% Y-level of the horizontal segment of the connector line down to Fuse.
+% Edit this independently of \StaticY to push the bend further down/up.
+\def\StaticLineY{-6.4}
+
+% Horizontal gap between the static encoder box and its "GMI + ancillary"
+% label to its right. Increase to push the label further away, decrease
+% to bring it closer.
+\def\StaticLabelGap{4.5}
+
+% "GMI + ancillary" caption position -- edit these two numbers directly.
+% (Independent of the box's own position, so you can put the caption
+% anywhere without moving the static encoder box itself.)
+\def\StaticLabelX{44.5}
+\def\StaticLabelY{-7.4}
+
+% "ABI geo_t" input label position -- edit these two numbers directly.
+% The subtext ("7x16x64^2") sits 1.6 below this automatically.
+\def\InputLabelX{-2.3}
+\def\InputLabelY{0.4}
+
+% X-position where the input arrow starts (its tip always stays fixed
+% at cr1's left edge). Edit this to lengthen/shorten the arrow.
+\def\InputArrowX{-2.0}
+
+\begin{document}
+\begin{tikzpicture}
+\tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
+\tikzstyle{skipconnection}=[ultra thick, dashed, every node/.style={sloped,allow upside down},draw=SkipBlue,opacity=0.8]
+\tikzstyle{staticconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\StaticBandColor,opacity=0.85]
+\tikzstyle{curvearrow}=[-{Stealth[length=3mm]}, line width=0.55mm, draw=ReluBlue, opacity=0.85]
+
+% Helper coordinate for the static-encoder connector's bend height.
+\coordinate (StaticLineY) at (0,\StaticLineY,0);
+
+% ===========================================================================
+%  SIAMESE ABI ENCODER (shared weights, 3 stages)
+% ===========================================================================
+% Stage 1: two stacked boxes imply the 7-frame ABI cube.
+% Back box offset kept small and symmetric so cr1's front face stays
+% aligned with the other encoder stages (cr2, cr3 at the same baseline).
+\pic[shift={(0,0,0)}] at (0,0,0) {Box={name=st_bk,%
+        fill=\ConvColor,opacity=0.35,height=34,width=1.4,depth=34}};
+\pic[shift={(0,0,0)}] at (0,0,0) {RightBandedBox={name=cr1,%
+        xlabel={{"64",""}},zlabel=64,caption=Siamese,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=34,width={2,2},depth=34}};
+\pic[shift={(1.8,0,0)}] at (cr1-east) {Box={name=p1,%
+        fill=\PoolColor,opacity=0.7,height=30,width=1.4,depth=30}};
+
+\pic[shift={(5,-1.7,0)}] at (0,0,0) {RightBandedBox={name=cr2,%
+        xlabel={{"128",""}},zlabel=32,caption=Siamese,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=26,width={3,3},depth=26}};
+\pic[shift={(1.8,0,0)}] at (cr2-east) {Box={name=p2,%
+        fill=\PoolColor,opacity=0.7,height=20,width=1.4,depth=20}};
+
+\pic[shift={(10,-3.4,0)}] at (0,0,0) {RightBandedBox={name=cr3,%
+        xlabel={{"256",""}},zlabel=16,caption=Siamese,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=18,width={4.5,4.5},depth=18}};
+\pic[shift={(1.8,0,0)}] at (cr3-east) {Box={name=p3,%
+        fill=\PoolColor,opacity=0.7,height=12,width=1.4,depth=12}};
+
+% Per-timestep bottleneck @ 8x8, y=-5.1
+\pic[shift={(15,-5.1,0)}] at (0,0,0) {RightBandedBox={name=cr4,%
+        xlabel={{"256",""}},zlabel=8,caption=Bottleneck,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=10,width={6,6},depth=10}};
+
+% ===========================================================================
+%  TRANSFORMER CORE (bottleneck rail, y=-5.1) -- spaced for curved routing
+% ===========================================================================
+\pic[shift={(19,-5.1,0)}] at (0,0,0) {RightBandedBox={name=tok,%
+        xlabel={{"256",""}},zlabel=8,caption=Tokens,%
+        fill=\AttnColor,bandfill=\AttnBandColor,height=10,width={5,5},depth=10}};
+\pic[shift={(23,-5.1,0)}] at (0,0,0) {RightBandedBox={name=stb,%
+        xlabel={{"256",""}},zlabel=8,caption=SpaceTime$\times$4,%
+        fill=\AttnColor,bandfill=\AttnBandColor,height=10,width={6.5,6.5},depth=10}};
+\pic[shift={(27.5,-5.1,0)}] at (0,0,0) {RightBandedBox={name=tagg,%
+        xlabel={{"256",""}},zlabel=8,caption=TempAgg,%
+        fill=\AttnColor,bandfill=\AttnBandColor,height=10,width={5,5},depth=10}};
+\pic[shift={(31.5,-5.1,0)}] at (0,0,0) {RightBandedBox={name=fuse,%
+        xlabel={{"256",""}},zlabel=8,caption=Fuse,%
+        fill=\AttnColor,bandfill=\AttnBandColor,height=10,width={3,3},depth=10}};
+
+% ===========================================================================
+%  DECODER (mirrors encoder heights)
+% ===========================================================================
+\pic[shift={(35.5,-3.4,0)}] at (0,0,0) {Box={name=up1,%
+        fill=\UnpoolColor,opacity=0.7,height=18,width=1.4,depth=18}};
+\pic[shift={(0,0,0)}] at (up1-east) {RightBandedBox={name=d1,%
+        xlabel={{"256",""}},zlabel=16,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=18,width={4.5,4.5},depth=18}};
+
+\pic[shift={(40.5,-1.7,0)}] at (0,0,0) {Box={name=up2,%
+        fill=\UnpoolColor,opacity=0.7,height=26,width=1.4,depth=26}};
+\pic[shift={(0,0,0)}] at (up2-east) {RightBandedBox={name=d2,%
+        xlabel={{"128",""}},zlabel=32,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=26,width={3,3},depth=26}};
+
+\pic[shift={(45.5,0,0)}] at (0,0,0) {Box={name=up3,%
+        fill=\UnpoolColor,opacity=0.7,height=34,width=1.4,depth=34}};
+\pic[shift={(0,0,0)}] at (up3-east) {RightBandedBox={name=d3,%
+        xlabel={{"64",""}},zlabel=64,caption=Dec,%
+        fill=\ConvColor,bandfill=\ConvReluColor,height=34,width={2,2},depth=34}};
+
+% ===========================================================================
+%  INPUT LABEL
+% ===========================================================================
+\node[align=center, font=\small\bfseries, text=ReluBlue] at (\InputLabelX, \InputLabelY, 0)
+  {ABI geo\_t};
+\node[align=center, font=\scriptsize, text=black!70] at (\InputLabelX, \InputLabelY-1.6, 0)
+  {7$\times$16$\times$64$^2$};
+\draw[connection] (\InputArrowX,0,0) -- node{\midarrow} (cr1-west);
+
+% ===========================================================================
+%  OUTPUT HEADS
+% ===========================================================================
+\pic[shift={(4.4,0,0)}] at (d3-east) {Box={name=out,caption=3 heads,%
+        zlabel=64,fill=\HeadColor,height=34,width=2,depth=34}};
+\node[align=left, font=\scriptsize, text=black!85, anchor=west] at (out-east)
+  [xshift=44pt]
+  {surface\_precip\ (log1p)\\[3pt] P(precip)\ (BCE)\\[3pt] P(heavy)\ (BCE)};
+
+% ===========================================================================
+%  STATIC ENCODER (GMI + anc) -- position controlled by \StaticX / \StaticY
+%  defined near the top of the file. Edit those two numbers to move this box.
+% ===========================================================================
+\pic[shift={(\StaticX,\StaticY,0)}] at (0,0,0) {RightBandedBox={name=senc,%
+        xlabel={{"256",""}},zlabel=8,caption=Static Encoder,%
+        fill=\StaticColor,bandfill=\StaticBandColor,height=10,width={4,4},depth=10}};
+\node[align=center, font=\scriptsize, text=\StaticBandColor] at (\StaticLabelX,\StaticLabelY,0)
+     {GMI (13) $+$\\ ancillary (6)};
+
+% ===========================================================================
+%  FORWARD CONNECTIONS  (encoder staircase)
+% ===========================================================================
+\draw[connection](cr1-east)--node{\midarrow}(p1-west);
+\draw[connection](cr2-east)--node{\midarrow}(p2-west);
+\draw[connection](cr3-east)--node{\midarrow}(p3-west);
+\draw[connection](p1-east)--(p1-east|-cr2-west)--node{\midarrow}(cr2-west);
+\draw[connection](p2-east)--(p2-east|-cr3-west)--node{\midarrow}(cr3-west);
+\draw[connection](p3-east)--(p3-east|-cr4-west)--node{\midarrow}(cr4-west);
+
+% bottleneck -> tokens (straight)
+\draw[connection](cr4-east)--node{\midarrow}(tok-west);
+
+% tokens -> SpaceTime, and SpaceTime -> TempAgg : these pass UNDER the static
+% encoder, so route them straight (the static block sits well above them).
+\draw[connection](tok-east)--node{\midarrow}(stb-west);
+\draw[connection](stb-east)--node{\midarrow}(tagg-west);
+\draw[connection](tagg-east)--node{\midarrow}(fuse-west);
+
+% fuse -> decoder (rise then run) -> heads
+\draw[connection](fuse-east)--(fuse-east|-up1-west)--node{\midarrow}(up1-west);
+\draw[connection](d1-east)--(d1-east|-up2-west)--node{\midarrow}(up2-west);
+\draw[connection](d2-east)--(d2-east|-up3-west)--node{\midarrow}(up3-west);
+\draw[connection](d3-east)--node{\midarrow}(out-west);
+
+% ===========================================================================
+%  STATIC ENCODER ROUTING -- short drop straight down into the Fuse block,
+%  entirely within the pocket (no more sweeping up over the whole encoder).
+% ===========================================================================
+\draw[staticconnection](fuse-east)--(fuse-east|-StaticLineY)--(senc-west|-StaticLineY)--node{\staticarrow}(senc-west);
+
+% ===========================================================================
+%  SKIP CONNECTIONS (straight horizontal dashed lines)
+% ===========================================================================
+\draw[skipconnection](cr3-east)--node{\copymidarrow}(up1-west);
+\draw[skipconnection](cr2-east)--node{\copymidarrow}(up2-west);
+\draw[skipconnection](cr1-east)--node{\copymidarrow}(up3-west);
+
+\end{tikzpicture}
+\end{document}
