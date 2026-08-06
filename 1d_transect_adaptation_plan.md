@@ -1,30 +1,24 @@
-# Plan: Adapt satvision-pix4d-base (SatMAE ViT) for 1D CloudSat/ABI Transects
+# Handoff Plan: Adapt satvision-pix4d-base (SatMAE ViT) for 1D CloudSat/ABI Transects
 
-## Background & Resolved Questions
+## Background & Architecture Strategy
 
 The preprocessing pipeline now produces **1D transect/profile** data shaped `512×1×16×7` (512 CloudSat footprints × 1 nearest ABI pixel × 16 channels × 7 timesteps), instead of the previous 2D spatial tiles (`512×512×16×7`).
 
-Based on recent clarifications:
-1. **Architecture:** The `satvision-pix4d-base` model is a **Masked Autoencoder built on a ViT** (SatMAE). We will reuse the existing `MaskedAutoencoderViTTemporal` code in the repository rather than using `timm` or writing a custom model from scratch.
-2. **HuggingFace Checkpoint:** The weights are stored in `mp_rank_00_model_states.pt` on a gated HuggingFace repository.
-3. **Temporal Dimension:** The 7 timesteps will not be compressed into channels. The MAE encoder will process the spatio-temporal tokens, and its output features can later be reshaped and fed into a downstream architecture like a **3D U-Net** for time-series processing.
+- **Architecture:** The `satvision-pix4d-base` model is a **Masked Autoencoder built on a ViT** (SatMAE). We will reuse the existing `MaskedAutoencoderViTTemporal` code in the repository. 
+- **HuggingFace Checkpoint:** The weights are stored in `mp_rank_00_model_states.pt` on a gated HuggingFace repository (`nasa-cisto-data-science-group/satvision-pix4d-base`).
+- **Temporal Dimension:** The 7 timesteps will not be compressed into channels. The MAE encoder will process the spatio-temporal tokens.
 
 ---
 
-## Goal 1: Modify the Base Architecture & Config for 1D `512×1` Input
+## Phase 1: Modify the Base Architecture & Config for 1D `512×1` Input (COMPLETED)
 
 ### Step 1.1 — Update Configuration Typing in `config.py`
 
-**File:** [`satvision_pix4d/configs/config.py`](file:///home/aliewehr/satvision-pix4d/satvision_pix4d/configs/config.py)
+**File:** `satvision_pix4d/configs/config.py`
 
-**Problem:** `yacs` enforces strict type matching. The current defaults are scalar integers:
-```python
-_C.DATA.IMG_SIZE = 224            # int
-_C.MODEL.MAE_VIT.PATCH_SIZE = 16 # int
-```
-Overriding `IMG_SIZE` with `[512, 1]` from a YAML file triggers a `TypeError`.
+**Problem:** `yacs` enforces strict type matching. Overriding scalar integer defaults (e.g. `224`) with `[512, 1]` triggers a `TypeError`.
 
-**Change:** Convert these defaults to tuples/lists so YAML overrides like `[512, 1]` are accepted:
+**Change:** Convert defaults to tuples/lists so YAML overrides like `[512, 1]` are accepted:
 ```python
 _C.DATA.IMG_SIZE = (224, 224)
 _C.MODEL.MAE_VIT.PATCH_SIZE = (16, 16)
@@ -32,10 +26,10 @@ _C.MODEL.MAE_VIT.PATCH_SIZE = (16, 16)
 
 ### Step 1.2 — Adapt Patch Embedding for Asymmetric (1D) Input
 
-**File:** [`satvision_pix4d/models/encoders/models_mae_temporal.py`](file:///home/aliewehr/satvision-pix4d/satvision_pix4d/models/encoders/models_mae_temporal.py)
+**File:** `satvision_pix4d/models/encoders/models_mae_temporal.py`
 
 The standard `PatchEmbed` expects square patches. For a `512×1` input, this must become asymmetric.
-We will modify the `PatchEmbed` implementation to support tuple patch sizes (e.g., `(16, 1)`):
+Modify the `PatchEmbed` implementation to support tuple patch sizes (e.g., `(16, 1)`):
 ```python
 # The patch embedding kernel and stride will become:
 nn.Conv3d(in_chans, embed_dim, kernel_size=(tubelet_size, patch_h, 1), stride=(tubelet_size, patch_h, 1))
@@ -43,41 +37,36 @@ nn.Conv3d(in_chans, embed_dim, kernel_size=(tubelet_size, patch_h, 1), stride=(t
 
 ### Step 1.3 — Adapt Positional Embeddings for 1D Spatial + Temporal
 
-**File:** [`satvision_pix4d/models/utils/pos_embed.py`](file:///home/aliewehr/satvision-pix4d/satvision_pix4d/models/utils/pos_embed.py)
+**File:** `satvision_pix4d/models/utils/pos_embed.py`
 
 The existing `get_2d_sincos_pos_embed` creates a 2D grid. For a `512×1` input, this degenerates to a 1D sequence in space.
-We will add a conditional path:
+Add a conditional path:
 - If the spatial width is `1` (i.e., 1D transect), use `get_1d_sincos_pos_embed_from_grid_torch` for the spatial dimension.
 - Combine this with the existing 1D temporal positional embedding to create the final 3D (Time + Space 1D) positional embedding.
 
-### Step 1.4 — Downstream Feature Extraction (3D U-Net Prep)
-
-Since the plan is to eventually use a 3D U-Net, we will ensure that the forward pass of the ViT encoder can return the unflattened features.
-The output of the ViT encoder (sequence of tokens) will be reshaped from `(B, T * (H/patch_h) * (W/patch_w), C)` back to a spatio-temporal grid `(B, C, T, H_out, W_out)` so it can be seamlessly passed to a 3D U-Net.
-
 ---
 
-## Goal 2: Load Pretrained Weights from HuggingFace
+## Phase 2: Load Pretrained Weights from HuggingFace (COMPLETED)
 
 ### Step 2.1 — Download Weights via `huggingface_hub`
 
-Since the repository is gated, we will require HuggingFace authentication. We will write a loading script that uses the user's token:
+Since the repository is gated, we will require HuggingFace authentication. We will write a loading script that uses `token=True`:
 
 ```python
 from huggingface_hub import hf_hub_download
 
-# Prompts for token or uses the CLI login
+# Uses the cached HF token (run `huggingface-cli login` first)
 model_path = hf_hub_download(
     repo_id="nasa-cisto-data-science-group/satvision-pix4d-base",
     filename="mp_rank_00_model_states.pt",
-    use_auth_token=True # Assumes user has run `huggingface-cli login` or provides token
+    token=True 
 )
 checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 ```
 
 ### Step 2.2 — Handle Weight Shape Mismatches (2D → 1D)
 
-Loading pretrained 2D weights into a 1D-adapted model will cause shape mismatches in two key layers:
+Loading pretrained 2D weights into a 1D-adapted model will cause shape mismatches:
 
 #### `patch_embed.proj.weight`
 - **Pretrained shape:** `(embed_dim, in_chans, tubelet_size, patch_h, patch_w)`
@@ -92,22 +81,27 @@ Loading pretrained 2D weights into a 1D-adapted model will cause shape mismatche
 #### `pos_embed`
 - **Pretrained shape:** Encodes a 2D spatial grid + time.
 - **New shape:** 1D sequence + time.
-- **Adaptation:** We will interpolate the pre-trained 2D spatial positional embeddings down to the 1D dimension `(512 // 16 = 32)` using `F.interpolate` so that the model retains its learned spatial biases.
+- **Adaptation:** Interpolate the pre-trained 2D spatial positional embeddings down to the 1D dimension `(512 // 16 = 32)` using `F.interpolate` so that the model retains its learned spatial biases.
 
 ### Step 2.3 — Load the Adapted State Dict
 
 ```python
-# Clean up state dict keys (e.g., removing 'model.encoder.' prefixes if necessary)
 state_dict = adapt_checkpoint_for_1d(checkpoint["module"])
-
 missing, unexpected = model.load_state_dict(state_dict, strict=False)
 print(f"Missing keys: {len(missing)}, Unexpected keys: {len(unexpected)}")
 ```
 
 ---
 
-## Next Actions
+## Phase 3: Finetuning & Data Loading (COMPLETED)
 
-1. Proceed with editing `config.py` to allow tuple inputs.
-2. Edit `models_mae_temporal.py` and `pos_embed.py` to handle the asymmetric `(patch_size, 1)` patching and 1D positional embeddings.
-3. Write a small test script (`ExampleModelLoading_1D.ipynb` or `.py`) to demonstrate the HuggingFace download, weight interpolation, and successful loading of the `mp_rank_00_model_states.pt` checkpoint.
+The next session will focus on finetuning the model utilizing existing logic from the `dev` branch. Reference the following notebooks for the blueprint:
+- `notebooks/cloud_height/CloudHeight_SatVision-Pix4D_pair.ipynb`
+- `notebooks/cloud_height/CloudHeight_SatVision-Pix4D.ipynb`
+
+As established: *"the workflow is the same: load pre-trained SatMAE as encoder, build customized decoder, then load label data to fine tune."*
+
+### Tasks for Next Session:
+1. **Dataset Classes:** Adapt the PyTorch Dataset classes found in the referenced notebooks to parse the new `512x1x16x7` spatio-temporal inputs.
+2. **Custom Decoder:** Port and modify the customized decoders from the notebooks to process the 1D feature outputs from the adapted SatMAE ViT encoder and map them to a 1D target output (e.g. cloud properties along the transect).
+3. **Training Loop:** Initialize the finetuning loop using the interpolated/reshaped pre-trained weights to train the downstream task.

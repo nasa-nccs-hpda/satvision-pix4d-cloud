@@ -409,7 +409,7 @@ def main():
 
     dataset = ABITemporalDataset(
         data_paths=data_paths,
-        img_size=int(config.DATA.IMG_SIZE),
+        img_size=int(config.DATA.IMG_SIZE[0] if isinstance(config.DATA.IMG_SIZE, (list, tuple)) else config.DATA.IMG_SIZE),
         in_chans=int(config.MODEL.MAE_VIT.IN_CHANS),
     )
     if args.max_samples is not None:

@@ -8,7 +8,7 @@ MODEL:
   NAME: satmae_satvision_pix4d_pretrain-dev
   DROP_PATH_RATE: 0.0                 # ↓ turn off regularization
   MAE_VIT:
-    PATCH_SIZE: 16
+    PATCH_SIZE: [16, 16]
     IN_CHANS: 16
     EMBED_DIM: 1024
     DEPTHS: 24
@@ -33,7 +33,7 @@ DATA:
   PERSISTENT_WORKERS: True
   TRAIN_DATA_PATHS: ["/raid/jacaraba/convection-small"]
   VAL_DATA_PATHS:   ["/raid/jacaraba/convection-small"]
-  IMG_SIZE: 512
+  IMG_SIZE: [512, 512]
   MASK_PATCH_SIZE: 16                  # match model patch size (or drop this field)
   MASK_RATIO: 0.25
 

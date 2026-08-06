@@ -30,7 +30,7 @@ _C.DATA.VALIDATION_PATH = ''
 # Dataset name
 _C.DATA.DATASET = 'MODIS'
 # Input image size
-_C.DATA.IMG_SIZE = 224
+_C.DATA.IMG_SIZE = (224, 224)
 # Dataset length (for datasets where len cannot be used)
 _C.DATA.LENGTH = 1920000
 # Interpolation to resize image (random, bilinear, bicubic)
@@ -117,7 +117,7 @@ _C.MODEL.SWINV2.NORM_STAGE = False
 
 # SatMAE VIT parameters
 _C.MODEL.MAE_VIT = CN()
-_C.MODEL.MAE_VIT.PATCH_SIZE = 16
+_C.MODEL.MAE_VIT.PATCH_SIZE = (16, 16)
 _C.MODEL.MAE_VIT.IN_CHANS = 14
 _C.MODEL.MAE_VIT.EMBED_DIM = 768
 _C.MODEL.MAE_VIT.DEPTHS = 12

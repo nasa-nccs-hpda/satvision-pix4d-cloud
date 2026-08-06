@@ -393,7 +393,14 @@ class MaskedAutoencoderViT(nn.Module):
         ])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size ** 2 * in_chans, bias=True)
+        # Support asymmetric patch sizes (e.g. (16, 1) for 1D transects)
+        if isinstance(patch_size, (list, tuple)):
+            self._patch_h, self._patch_w = patch_size
+        else:
+            self._patch_h = self._patch_w = int(patch_size)
+        self.decoder_pred = nn.Linear(
+            decoder_embed_dim, self._patch_h * self._patch_w * in_chans, bias=True
+        )
 
         self.norm_pix_loss = norm_pix_loss
         self.same_mask = same_mask
@@ -442,30 +449,30 @@ class MaskedAutoencoderViT(nn.Module):
 
     # ---------------- patchify / unpatchify ----------------
     def patchify(self, imgs):
-        p = self.patch_embed.patch_size[0]
+        ph, pw = self.patch_embed.patch_size
         B, T, C, H, W = imgs.shape
-        h = H // p
-        w = W // p
-        x = imgs.reshape(B, T, C, h, p, w, p)
-        x = x.permute(0, 1, 3, 5, 4, 6, 2).reshape(B, T * h * w, p * p * C)
+        h = H // ph
+        w = W // pw
+        x = imgs.reshape(B, T, C, h, ph, w, pw)
+        x = x.permute(0, 1, 3, 5, 4, 6, 2).reshape(B, T * h * w, ph * pw * C)
         return x
 
     def unpatchify(self, x, T, H, W):
-        p = self.patch_embed.patch_size[0]
+        ph, pw = self.patch_embed.patch_size
         B = x.shape[0]
-        h = H // p
-        w = W // p
-        C = x.shape[-1] // (p * p)
-        x = x.reshape(B, T, h, w, p, p, C).permute(0, 1, 6, 2, 4, 3, 5).reshape(B, T, C, H, W)
+        h = H // ph
+        w = W // pw
+        C = x.shape[-1] // (ph * pw)
+        x = x.reshape(B, T, h, w, ph, pw, C).permute(0, 1, 6, 2, 4, 3, 5).reshape(B, T, C, H, W)
         return x
 
     def tokens_to_pixel_mask(self, mask_tokens, T, H, W):
-        p = self.patch_embed.patch_size[0]
+        ph, pw = self.patch_embed.patch_size
         B = mask_tokens.shape[0]
-        h = H // p
-        w = W // p
+        h = H // ph
+        w = W // pw
         mask = mask_tokens.view(B, T, h, w).unsqueeze(2)
-        return mask.repeat_interleave(p, dim=3).repeat_interleave(p, dim=4).float()
+        return mask.repeat_interleave(ph, dim=3).repeat_interleave(pw, dim=4).float()
 
     # ---------------- masking ----------------
     def random_masking(self, x, mask_ratio, mask=None):
@@ -577,7 +584,13 @@ class MaskedAutoencoderViT(nn.Module):
         L_per_step = x_emb.shape[1]
         x_emb = x_emb.reshape(B, T * L_per_step, -1)     # (B, L, embed_dim)
 
-        grid_size = int(L_per_step ** 0.5)
+        # Compute actual grid dimensions (supports asymmetric patches)
+        ph, pw = self.patch_embed.patch_size
+        grid_h = H // ph
+        grid_w = W // pw
+        grid_size = (grid_h, grid_w)
+        # Cache for use by forward_decoder
+        self._last_grid_size = grid_size
 
         # positional (numpy -> torch)
         pos_embed_spatial = get_2d_sincos_pos_embed(
@@ -631,7 +644,9 @@ class MaskedAutoencoderViT(nn.Module):
         x_ = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).expand(-1, -1, x.shape[2]))
         x = torch.cat([x[:, :1, :], x_], dim=1)
 
-        grid_size = int(L_per_step ** 0.5)
+        # Use cached grid dimensions from forward_encoder (supports asymmetric patches)
+        grid_size = getattr(self, '_last_grid_size',
+                            (int(L_per_step ** 0.5), int(L_per_step ** 0.5)))
 
         # positional for decoder
         pos_embed_spatial = get_2d_sincos_pos_embed(

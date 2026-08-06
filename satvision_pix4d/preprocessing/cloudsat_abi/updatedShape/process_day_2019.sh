@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH -t 01:00:00                               # Request 24 hours max runtime
+#SBATCH -t 02:00:00                               # Request 24 hours max runtime
 #SBATCH -n 1                                      # Number of tasks
 #SBATCH -c 40                                     # Request 40 CPU cores
 #SBATCH --mem=128G                                # Request 128 GB of memory
-#SBATCH -N 1                                    # Request full node
-#SBATCH -J new_shape_test # Job name
+#SBATCH -N 1                                      # Request full node
+#SBATCH -J chip_crop_2019                         # Job name
 #SBATCH --export=ALL                              # Export environment variables
  
 # Initialize conda for non-interactive shell sessions
@@ -16,9 +16,6 @@ else
     export PATH="/panfs/ccds02/app/modules/anaconda/platform/x86_64/rhel/8.6/3-2022.05/envs/ilab-pytorch/bin:$PATH"
 fi
  
-# Run the pipeline with your own PYTHONPATH and CLI script paths
-# - Set 7 time steps using --offsets (here, -60, -40, -20, 0, 20, 40, 60 minutes)
-# - Exclude MERRA-2 by specifying --metadata cloudsat cloudsat_aux (omits merra2)
 PYTHONPATH=/panfs/ccds02/nobackup/people/aliewehr/satvision-pix4d \
 python /panfs/ccds02/nobackup/people/aliewehr/satvision-pix4d/satvision_pix4d/preprocessing/cloudsat_abi/updatedShape/cloudsat_abi_cropping_cli.py \
   --abi-root /css/geostationary/NonOptimized/L1/GOES-16-ABI-L1B-FULLD \
@@ -29,10 +26,10 @@ python /panfs/ccds02/nobackup/people/aliewehr/satvision-pix4d/satvision_pix4d/pr
   --satellite goes16 \
   --metadata cloudsat cloudsat_aux \
   --require-cloud \
-  --day-start 100 \
-  --day-end 101 \
+  --day-start $1 \
+  --day-end $2 \
   --profile-stride 180 \
   --profiles-per-chip 512 \
   --chip-size 1 \
   --inner-disk-margin 2400 \
-  --workers 1
+  --workers 4
