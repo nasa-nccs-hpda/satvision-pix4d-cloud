@@ -1,0 +1,17 @@
+#!/bin/bash
+#BSUB -J train_satmae
+#BSUB -o train_satmae_%J.out
+#BSUB -e train_satmae_%J.err
+#BSUB -W 04:00
+#BSUB -n 1
+#BSUB -M 64000
+#BSUB -q h100
+#BSUB -gpu "num=1"
+
+# Execute the training script inside the .sif container
+singularity exec \
+  --env PYTHONPATH=/home/al8425b-hpc/freshStart/satvision-pix4d \
+  --nv \
+  -B /home \
+  /home/al8425b-hpc/freshStart/satvision-pix4d/satvision-pix4d.sif \
+  python train_segmentation.py
