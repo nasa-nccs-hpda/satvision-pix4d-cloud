@@ -74,11 +74,11 @@ SATVISION_PIX4D_CONFIG = "/home/al8425b-hpc/freshStart/satvision-pix4d/tests/con
 SATVISION_PIX4D_MODEL = "/home/al8425b-hpc/.cache/huggingface/hub/models--nasa-cisto-data-science-group--satvision-pix4d-base/snapshots/b229dfef33f1b48d97fa754e166424e0a118ab41/mp_rank_00_model_states.pt"
 
 # Training hyperparameters
-BATCH_SIZE = 256
-NUM_WORKERS = 10
+BATCH_SIZE = 4  # Reduced from 256 to fit within VRAM limits
+NUM_WORKERS = 4
 MAX_EPOCHS = 100
 LEARNING_RATE = 1e-4
-ENCODER_LR = 1e-5  # Smaller LR for pre-trained encoder
+ENCODER_LR = 1e-5
 
 # Model architecture (Updated for 512x512 spatial input and 512x40 output mask)
 TARGET_HEIGHT = 512 
@@ -155,9 +155,11 @@ print(f"   Underlying MAE: {type(sat_pretrain.model)}")
 class CloudSatBinaryDataset(Dataset):
     """Dataset for CloudSat binary cloud mask segmentation."""
     
-    def __init__(self, file_paths, target_size=(91, 40)):
+    def __init__(self, file_paths, target_size=(512, 40)):
         self.file_paths = file_paths
         self.target_height, self.target_width = target_size
+        self.chip_size = 512
+        self.in_channels = 16
 
     def __len__(self):
         return len(self.file_paths)
@@ -165,73 +167,69 @@ class CloudSatBinaryDataset(Dataset):
     def __getitem__(self, idx):
         try:
             with np.load(self.file_paths[idx], allow_pickle=True) as data:
-                # Load ABI chip and extract the middle timestep (index 3)
-                chip_g16_raw = data['chip_g16'].astype(np.float32)
-                chip_g16 = chip_g16_raw[:, :, :, 3]
+                # 1. Load ABI chip and extract the middle timestep (index 3)
+                chip_raw = data['ABI/chip'].astype(np.float32)
+                chip_t3 = chip_raw[:, :, :, 3]  # Shape: (H, W, C)
 
-                # Normalize each channel independently
-                for i in range(chip_g16.shape[2]):
-                    channel = chip_g16[:, :, i]
-                    min_val = channel.min()
-                    max_val = channel.max()
-                    if max_val > min_val:
-                        chip_g16[:, :, i] = (channel - min_val) / (max_val - min_val)
-                    else:
-                        chip_g16[:, :, i] = 0.0
+                # 2. Force-initialize a clean channel-first array: (16, 512, 512)
+                clean_chip = np.zeros((self.in_channels, self.chip_size, self.chip_size), dtype=np.float32)
+
+                # 3. Safely map pixels into the 512x512 grid (handling crop/pad safely)
+                src_h, src_w, _ = chip_t3.shape
                 
-                # Transpose to channel-first: (H, W, C) -> (C, H, W)
-                chip_g16 = np.transpose(chip_g16, (2, 0, 1))
+                # Calculate slice bounds for source and target
+                h_len = min(src_h, self.chip_size)
+                w_len = min(src_w, self.chip_size)
+                
+                src_h_start = max(0, (src_h - self.chip_size) // 2)
+                src_w_start = max(0, (src_w - self.chip_size) // 2)
+                
+                tgt_h_start = max(0, (self.chip_size - src_h) // 2)
+                tgt_w_start = max(0, (self.chip_size - src_w) // 2)
 
-                # Load companion ABI chip and extract the middle timestep (index 3)
-                chip_g17_raw = data['chip_g17'].astype(np.float32)
-                chip_g17 = chip_g17_raw[:, :, :, 3]
-
-                for i in range(chip_g17.shape[2]):
-                    channel = chip_g17[:, :, i]
-                    min_val = channel.min()
-                    max_val = channel.max()
+                # Copy valid data channel by channel from (H, W, C) to (C, H, W)
+                for c in range(self.in_channels):
+                    channel_data = chip_t3[src_h_start:src_h_start+h_len, src_w_start:src_w_start+w_len, c]
+                    
+                    # Normalize channel independently
+                    min_val = channel_data.min()
+                    max_val = channel_data.max()
                     if max_val > min_val:
-                        chip_g17[:, :, i] = (channel - min_val) / (max_val - min_val)
+                        channel_data = (channel_data - min_val) / (max_val - min_val)
                     else:
-                        chip_g17[:, :, i] = 0.0 
+                        channel_data = np.zeros_like(channel_data)
                         
-                # Transpose to channel-first: (H, W, C) -> (C, H, W)    
-                chip_g17 = np.transpose(chip_g17, (2, 0, 1))
+                    clean_chip[c, tgt_h_start:tgt_h_start+h_len, tgt_w_start:tgt_w_start+w_len] = channel_data
+
+                # 4. Load BINARY cloud mask
+                cloud_mask_raw = data['CloudSat/cloud_binary_mask'].astype(np.float32)
+                clean_mask = np.zeros((self.target_height, self.target_width), dtype=np.float32)
                 
-                # Load BINARY cloud mask
-                cloud_mask_raw = data['data'].item()['Cloud_mask_binary'].astype(np.float32)
+                m_src_h, m_src_w = cloud_mask_raw.shape
+                m_h_len = min(m_src_h, self.target_height)
+                m_w_len = min(m_src_w, self.target_width)
                 
-                # Pad mask to target size (512, 40)
-                pad_height_total = self.target_height - cloud_mask_raw.shape[0]
-                pad_top = pad_height_total // 2
-                pad_bottom = pad_height_total - pad_top
+                m_src_h_start = max(0, (m_src_h - self.target_height) // 2)
+                m_src_w_start = max(0, (m_src_w - self.target_width) // 2)
                 
-                pad_width_total = self.target_width - cloud_mask_raw.shape[1]
-                pad_left = pad_width_total // 2
-                pad_right = pad_width_total - pad_left
+                m_tgt_h_start = max(0, (self.target_height - m_src_h) // 2)
+                m_tgt_w_start = max(0, (self.target_width - m_src_w) // 2)
                 
-                cloud_mask_padded = np.pad(
-                    cloud_mask_raw,
-                    ((pad_top, pad_bottom), (pad_left, pad_right)),
-                    'constant',
-                    constant_values=0
-                )
-               
+                clean_mask[m_tgt_h_start:m_tgt_h_start+m_h_len, m_tgt_w_start:m_tgt_w_start+m_w_len] = \
+                    cloud_mask_raw[m_src_h_start:m_src_h_start+m_h_len, m_src_w_start:m_src_w_start+m_w_len]
+
+                # 5. Return the dictionary with guaranteed correct shapes: (16, 512, 512)
                 return {
-                    "chip_g16": torch.from_numpy(chip_g16),
-                    "chip_g17": torch.from_numpy(chip_g17),
-                    "mask": torch.from_numpy(cloud_mask_padded),
+                    "chip_g16": torch.from_numpy(clean_chip),
+                    "chip_g17": torch.from_numpy(clean_chip),
+                    "mask": torch.from_numpy(clean_mask),
                     "path": self.file_paths[idx]
                 }
         except Exception as e:
-            print(f"⚠️  Error loading {self.file_paths[idx]}: {e}")
+            print(f"⚠️ Error loading {self.file_paths[idx]}: {e}")
             return None
 
-
-# ## 5. Data Module
-
-# In[5]:
-
+# ## 6. Model Architecture
 
 class CloudSatDataModule(pl.LightningDataModule):
     """PyTorch Lightning DataModule for CloudSat binary segmentation."""
@@ -291,9 +289,6 @@ class CloudSatDataModule(pl.LightningDataModule):
         if not batch:
             return None
         return torch.utils.data.dataloader.default_collate(batch)
-
-
-# ## 6. Model Architecture
 
 # In[6]:
 
