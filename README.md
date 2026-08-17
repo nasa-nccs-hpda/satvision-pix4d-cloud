@@ -1,4 +1,4 @@
-# SatVision-Pix4D
+# SatVision-Pix4DCloud
 
 SatVision-PIX4D is a scalable data generation and pre-training pipeline for geostationary satellite imagery, designed to support self-supervised and foundation-model development using ABI L1 data. The system is optimized for execution on NASA NCCS HPC resources using Singularity containers and supports stratified tile generation (e.g., convection, cloud systems, land cover).
 
