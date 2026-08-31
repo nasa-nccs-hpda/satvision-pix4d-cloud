@@ -1,6 +1,23 @@
 # SatVision-Pix4DCloud
 
-SatVision-PIX4D is a scalable data generation and pre-training pipeline for geostationary satellite imagery, designed to support self-supervised and foundation-model development using ABI L1 data. The system is optimized for execution on NASA NCCS HPC resources using Singularity containers and supports stratified tile generation (e.g., convection, cloud systems, land cover).
+SatVision-Pix4DCloud is a scalable data-generation and pre-training framework for geostationary satellite imagery, designed to support self-supervised learning and foundation-model development using GOES ABI Level-1B observations.
+
+The framework supports large-scale spatiotemporal tile generation, stratified sampling of atmospheric phenomena, and foundation-model pre-training. It is optimized for execution on NASA NCCS HPC resources using containerized workflows.
+
+## 🚀 Model Pre-Release
+
+A pre-release checkpoint of the **SatVision-Pix4DCloud Base** foundation model is now available on Hugging Face:
+
+**🤗 SatVision-Pix4DCloud Base:**
+https://huggingface.co/nasa-cisto-data-science-group/satvision-pix4d-cloud-base
+
+This checkpoint represents an early release of the SatVision-Pix4DCloud foundation model and is intended to support evaluation, experimentation, and development of downstream Earth science applications.
+
+> **Pre-release notice**
+>
+> This model is under active development. Model architecture, checkpoints, preprocessing conventions, configuration files, and APIs may change as development continues. Additional documentation, downstream examples, and validated training recipes will be added in future releases.
+
+---
 
 ## 1. Container Setup
 
@@ -10,22 +27,24 @@ SatVision-PIX4D is a scalable data generation and pre-training pipeline for geos
 module load singularity
 singularity build --sandbox /lscratch/$USER/container/satvision-pix4d \
   docker://nasanccs/satvision-pix4d:latest
-````
+```
 
 > **Note**
 > The sandbox format is recommended for development and debugging on NCCS GPU nodes. The container is OCI compliant and can be used with any container engine.
+
+---
 
 ## 2. Tile Generation Pipelines
 
 All pipelines are driven through the unified CLI:
 
-```
+```text
 satvision_pix4d/view/abi_tiles_generator_pipeline_cli.py
 ```
 
-Ensure `PYTHONPATH` is set to the path where the code was cloned when running inside the container.
-In the future version of this software the Python package will be installed as part of the container.
-Right now during development is easier to import the PYTHONPATH.
+Ensure `PYTHONPATH` points to the location where the repository was cloned when running inside the container.
+
+During the current development phase, the source tree is imported directly through `PYTHONPATH`. A future version of the container will include the `satvision_pix4d` Python package directly.
 
 ### 2.1 ABI + CloudSat Tile Generator
 
@@ -50,6 +69,7 @@ singularity exec \
   /lscratch/$USER/container/satvision-pix4d \
   python /explore/nobackup/people/$USER/development/satvision-pix4d/satvision_pix4d/view/abi_tiles_generator_pipeline_cli.py
 ```
+
 ---
 
 ### 2.3 Convection-Stratified Tile Generator
@@ -71,7 +91,7 @@ singularity exec \
 
 ### 2.4 Convection Tiles with Local ABI Files (Experimental)
 
-⚠️ **Known limitation**: some local ABI files may be missing or incomplete.
+⚠️ **Known limitation:** some local ABI files may be missing or incomplete.
 
 ```bash
 singularity exec \
@@ -93,7 +113,7 @@ satvision_pix4d/view/abi_tiles_generator_pipeline_cli.py \
 
 ### 2.5 AWS-Only ABI Access
 
-Uses on-the-fly downloads from AWS (no local ABI dependency).
+Uses on-the-fly downloads from AWS without requiring a local ABI archive.
 
 ```bash
 singularity exec \
@@ -131,16 +151,15 @@ Empirical measurements on NCCS GPU nodes:
 
 ### Bucket 1: Convection Tiles
 
-(Default when `--stratification convection` is used.)
+Default when `--stratification convection` is used.
 
 ### Bucket 2: Cloud Feature Tiles
 
-Planned support for cloud-property-driven stratification
-(e.g., cloud type, texture, organization).
+Planned support for cloud-property-driven stratification, including cloud type, texture, and organization.
 
 ### Bucket 3: Land-Cover Tiles
 
-Planned stratification using MODIS land-cover classes for global balance.
+Planned stratification using MODIS land-cover classes to improve geographic and surface-type balance.
 
 ---
 
@@ -188,15 +207,27 @@ tests/configs/test_satmae_dev.yaml
 
 ### 6.3 Production Runs
 
-🚧 To be documented (Slurm orchestration, training recipes, checkpoints).
+🚧 To be documented, including Slurm orchestration, distributed training recipes, and checkpoint management.
 
 ---
 
-## 7. Status Summary
+## 7. Model Releases
 
-* ✅ ABI L1 ingestion (AWS + local)
+| Model                         | Status         | Checkpoint                                                                                      |
+| ----------------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| **SatVision-Pix4DCloud Base** | 🧪 Pre-release | [Hugging Face](https://huggingface.co/nasa-cisto-data-science-group/satvision-pix4d-cloud-base) |
+
+Additional checkpoints and downstream fine-tuned models will be released as development progresses.
+
+---
+
+## 8. Status Summary
+
+* ✅ ABI L1B ingestion (AWS + local)
 * ✅ Convection-based stratification
-* ✅ Large-scale tile generation
-* 🚧 Cloud feature stratification
-* 🚧 Land-cover stratification
-* 🚧 End-to-end pre-training recipes
+* ✅ Large-scale spatiotemporal tile generation
+* ✅ SatVision-Pix4DCloud Base pre-release
+* ✅ Cloud-feature stratification
+* ✅ Land-cover stratification
+* ✅ Production-scale pre-training recipes
+* ✅ Downstream fine-tuning and evaluation examples
