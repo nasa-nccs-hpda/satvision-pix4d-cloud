@@ -324,7 +324,10 @@ class MaskedAutoencoderViT(nn.Module):
         timestamps = timestamps.to(x.device)
 
         # patch -> tokens
-        x_flat = x.reshape(B * T, C, H, W)
+        # DeepSpeed bf16 weights may run without autocast, while normalization
+        # intentionally stays fp32. Cast only the encoder input, preserving the
+        # original fp32 images used as reconstruction targets.
+        x_flat = x.reshape(B * T, C, H, W).to(dtype=self.patch_embed.proj.weight.dtype)
         x_emb = self.patch_embed(x_flat)                 # (B*T, Ls, embed_dim)
         L_per_step = x_emb.shape[1]
         x_emb = x_emb.reshape(B, T * L_per_step, -1)     # (B, L, embed_dim)

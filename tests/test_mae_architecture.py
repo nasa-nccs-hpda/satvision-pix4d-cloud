@@ -20,6 +20,24 @@ def tiny(**kwargs):
     return MaskedAutoencoderViT(**args)
 
 
+def test_bfloat16_weights_accept_float32_images_without_autocast():
+    # DeepSpeed casts weights to bf16; normalization and direct probes produce
+    # fp32 images. Its precision context does not provide torch autocast.
+    model = tiny(use_checkpoint=True).to(dtype=torch.bfloat16)
+    images = torch.randn(1, 2, 2, 32, 32)
+    timestamps = torch.zeros(1, 2, 3)
+    model.eval()
+    with torch.no_grad():
+        probe_loss, pred, _ = model(images, timestamps)
+    assert pred.dtype == torch.bfloat16
+    assert torch.isfinite(probe_loss)
+    model.train()
+    loss, _, _ = model(images, timestamps)
+    assert loss.dtype == torch.float32
+    loss.backward()
+    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.parameters())
+
+
 def test_partitioned_initialization_uses_deepspeed_zero_attribute(monkeypatch):
     # DeepSpeed exports zero as an attribute, not an importable deepspeed.zero.
     layer = torch.nn.Linear(2, 3)
