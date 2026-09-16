@@ -64,10 +64,8 @@ name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
-# DeepSpeed metadata/build needs torch. Custom CUDA operators can JIT on the
-# training node; don't require a CUDA compiler simply to resolve this project.
-[tool.uv.extra-build-dependencies]
-deepspeed = ["torch==2.7.1", "numpy>=1.26,<3"]
-
+# Keep torch out of DeepSpeed's isolated build environment. With torch present
+# on a GPU node, setup probes nvcc for optional CuPy extras even with ops disabled.
+# Runtime torch is supplied by the selected backend extra above.
 [tool.uv.extra-build-variables]
 deepspeed = { DS_BUILD_OPS = "0" }

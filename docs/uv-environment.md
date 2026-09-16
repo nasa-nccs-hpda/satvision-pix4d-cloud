@@ -51,7 +51,16 @@ uses native PyTorch from PyPI for local CPU tests; CUDA/DeepSpeed are not availa
 there. This lockfile does not target Windows or ARM Linux.
 
 DeepSpeed builds have DS_BUILD_OPS=0 to avoid compiling all optional operators at
-installation. If your chosen runtime optimizer/offload configuration JIT-compiles
+installation. Its isolated build intentionally excludes PyTorch: DeepSpeed 0.17.6
+otherwise probes the CUDA toolkit for optional CuPy metadata on GPU nodes even
+with operator builds disabled. PyTorch is installed into the runtime environment
+by the selected CUDA extra. Keep build isolation enabled.
+
+If an older checkout fails with `CUDA_HOME does not exist` during `uv sync`, pull
+the updated branch and retry `uv sync --locked --extra cu128` (or `cu126`). There
+is no need to delete `.venv` or set `CUDA_HOME` to a nonexistent toolkit.
+
+If your chosen runtime optimizer/offload configuration JIT-compiles
 an operator, a compatible CUDA toolkit/compiler must also be available on that
 node. The default workflows use torch AdamW without CPU/NVMe offload. You do not
 need the separate `flash-attn` package: the model uses PyTorch SDPA.
