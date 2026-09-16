@@ -9,6 +9,17 @@ _C = CN()
 # Base config files
 _C.BASE = ['']
 
+# Synthetic training benchmark (optimizer steps, not microbatches).
+_C.BENCHMARK = CN()
+_C.BENCHMARK.MODE = 'throughput'
+_C.BENCHMARK.TIMESTEPS = 7
+_C.BENCHMARK.STEPS = 100
+_C.BENCHMARK.WARMUP_STEPS = 10
+_C.BENCHMARK.FIXED_SAMPLES = 4
+_C.BENCHMARK.PROBE_SAMPLES = 1
+_C.BENCHMARK.MIN_RELATIVE_IMPROVEMENT = 0.1
+
+
 # -----------------------------------------------------------------------------
 # Data settings
 # -----------------------------------------------------------------------------
@@ -31,6 +42,9 @@ _C.DATA.VALIDATION_PATH = ''
 _C.DATA.DATASET = 'MODIS'
 # Input image size
 _C.DATA.IMG_SIZE = 224
+_C.DATA.TEMPORAL_COMPONENTS = ['year', 'month', 'hour']
+_C.DATA.REQUIRE_TIMESTAMPS = False
+_C.DATA.NUM_TIMESTEPS = 0  # 0 allows any nonempty sequence
 # Dataset length (for datasets where len cannot be used)
 _C.DATA.LENGTH = 1920000
 # Interpolation to resize image (random, bilinear, bicubic)
@@ -117,6 +131,10 @@ _C.MODEL.SWINV2.NORM_STAGE = False
 
 # SatMAE VIT parameters
 _C.MODEL.MAE_VIT = CN()
+# custom preserves the dimensions of existing configs/checkpoints.
+_C.MODEL.MAE_VIT.SIZE = 'custom'
+_C.MODEL.MAE_VIT.LOSS_TYPE = 'mse'
+_C.MODEL.MAE_VIT.VISNIR_CHANNELS = []
 _C.MODEL.MAE_VIT.PATCH_SIZE = 16
 _C.MODEL.MAE_VIT.IN_CHANS = 14
 _C.MODEL.MAE_VIT.EMBED_DIM = 768
@@ -209,11 +227,16 @@ _C.TRAIN.LAYER_DECAY = 1.0
 
 # Tensorboard settings
 _C.TENSORBOARD = CN()
-_C.TENSORBOARD.WRITER_DIR = '.'
+_C.TENSORBOARD.WRITER_DIR = ''  # empty: output directory
+_C.TENSORBOARD.ENABLED = True
+_C.TENSORBOARD.RECONSTRUCTIONS = True
+_C.TENSORBOARD.RECONSTRUCTION_BANDS = [1, 12]
+_C.TENSORBOARD.RECONSTRUCTION_TIMESTEPS = 3
 
 # MLFlow configuration settings
 _C.MLFLOW = CN()
 _C.MLFLOW.URI = None
+_C.MLFLOW.ENABLED = False
 
 # DeepSpeed configuration settings
 _C.DEEPSPEED = CN()

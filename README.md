@@ -200,3 +200,21 @@ tests/configs/test_satmae_dev.yaml
 * 🚧 Cloud feature stratification
 * 🚧 Land-cover stratification
 * 🚧 End-to-end pre-training recipes
+
+## Model architecture and size presets
+
+See [the architecture review](docs/model-architecture-review.md) for verified
+parameter counts, fixes, figure-aligned pretraining loss, checkpoint compatibility,
+and validation limits. Presets are available in `configs/pretrain/` for the
+330M, 700M, and 3B model versions (approximately 336.49M, 705.14M, and
+3.037B total parameters with the preset settings). An experimental `25b.yaml`
+preset adds 25.016B parameters; construction/counts are verified on the meta
+device, while full-scale training remains unvalidated.
+
+## Synthetic benchmarks and 100-epoch NumPy training
+
+See [training workflows](docs/training-workflows.md) for synthetic
+`[B,7,16,512,512]` throughput/overfit benchmarks, NumPy array and timestamp formats,
+and 100-epoch training with TensorBoard reconstructions and epoch checkpoints.
+Configurations cover the 330M, 700M, and 3B models in `configs/benchmark/` and
+`configs/train/`.

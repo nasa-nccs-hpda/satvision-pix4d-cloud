@@ -1,0 +1,5 @@
+BASE: [330m.yaml]
+MODEL:
+  NAME: satvision_3b
+  MAE_VIT:
+    SIZE: 3b

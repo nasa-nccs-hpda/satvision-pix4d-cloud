@@ -102,6 +102,7 @@ RUN pip --no-cache-dir install --ignore-installed blinker \
     'mlflow>=1.0.0' \
     #flash-attn \
     supervision \
+    tensorboard \
     pytest \
     coveralls \
     rtree \

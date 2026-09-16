@@ -96,3 +96,19 @@ def test_temporal_mae_same_mask_reuses_spatial_mask_across_time():
     mask_by_time = mask.view(1, 7, 4)
 
     assert torch.equal(mask_by_time[:, 0:1, :].expand_as(mask_by_time), mask_by_time)
+
+
+def test_five_component_timestamps(tmp_path):
+    np.savez(tmp_path / 'chip.npz', chip=np.zeros((1, 16, 32, 32), np.float32),
+             timestamps=np.array(['2020-02-03T04:05:00']))
+    dataset = ABITemporalDataset([str(tmp_path)], img_size=32, in_chans=16,
+                                 temporal_embeddings=['year', 'month', 'day', 'hour', 'minute'])
+    assert dataset[0][1].tolist() == [[20, 1, 2, 4, 5]]
+
+
+def test_dataset_rejects_mismatched_channels(tmp_path):
+    import pytest
+    np.save(tmp_path / 'chip.npy', np.zeros((1, 32, 32, 16), np.float32))
+    dataset = ABITemporalDataset([str(tmp_path)], img_size=32, in_chans=14)
+    with pytest.raises(ValueError, match='channel axis'):
+        dataset[0]

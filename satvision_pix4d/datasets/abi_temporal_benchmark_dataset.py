@@ -1,143 +1,56 @@
-import os
+"""Deterministic, learnable synthetic ABI sequences; no files are required."""
+from datetime import datetime, timedelta
+
 import torch
-import random
-import numpy as np
-import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 
 
-def generate_random_date_str(idx):
-    if idx == 0:
-        year = random.randint(2001, 2006)
-    elif idx == 1:
-        year = random.randint(2007, 2015)
-    elif idx == 2:
-        year = random.randint(2016, 2022)
-    else:
-        # To support more indices, just loop over periods
-        periods = [
-            (2001, 2006),
-            (2007, 2015),
-            (2016, 2022),
-        ]
-        selected = periods[idx % len(periods)]
-        year = random.randint(*selected)
-
-    month = random.randint(1, 12)
-    hour = random.randint(1, 24)
-    date_str = f"{year:04d}-{month:02d}-28T{hour:02d}:43:59Z"
-    return date_str
-
-
 class ABITemporalBenchmarkDataset(Dataset):
-    """
-    ABITemporalToyDataset designed for Pix4D-CloudMAE and SatMAE variants
-    """
-
-    def __init__(
-        self,
-        data_paths: list,
-        split: str,
-        img_size: int = 224,
-        in_chans: int = 14,
-        num_timesteps: int = 7,
-        transform=None,
-    ):
-        self.min_year = 2001
-        self.img_size = img_size
-        self.in_chans = in_chans
-        self.num_timesteps = num_timesteps
+    def __init__(self, data_paths=(), split="train", img_size=512, in_chans=16,
+                 num_timesteps=7, transform=None, length=256, seed=42,
+                 fixed_samples=0, temporal_embeddings=("year", "month", "hour"),
+                 mean=None, std=None):
+        if min(img_size, in_chans, num_timesteps, length) < 1 or fixed_samples < 0:
+            raise ValueError("Synthetic dimensions/length must be positive; fixed_samples >= 0")
+        self.img_size, self.in_chans = img_size, in_chans
+        self.num_timesteps, self.length = num_timesteps, length
+        self.seed = seed + (0 if split == "train" else 10_000_000)
+        self.fixed_samples = fixed_samples
+        self.temporal_embeddings = tuple(temporal_embeddings)
         self.transform = transform
-        self.split = split
-        self.data_paths = data_paths
-
-        self.img_list = sorted(list(range(0, 250000)))
-        self.mask_list = sorted(list(range(0, 250000)))
-
-        random_inst = random.Random(12345)
-        n_items = len(self.img_list)
-        print(f"Found {n_items} possible patches to use")
-
-        range_n_items = range(n_items)
-        idxs = set(random_inst.sample(range_n_items, len(range_n_items) // 5))
-        total_idxs = set(range_n_items)
-        if split == "train":
-            idxs = total_idxs - idxs
-
-        print(f"> Using {len(idxs)} patches for this dataset ({split})")
-        self.img_list = [self.img_list[i] for i in idxs]
-        self.mask_list = [self.mask_list[i] for i in idxs]
-        print(f">> {split}: {len(self.img_list)}")
+        self.mean = torch.tensor(mean if mean is not None else [0.] * in_chans).view(1, -1, 1, 1)
+        self.std = torch.tensor(std if std is not None else [1.] * in_chans).view(1, -1, 1, 1)
+        if self.mean.shape[1] != in_chans or self.std.shape[1] != in_chans or (self.std <= 0).any():
+            raise ValueError("Synthetic channel statistics must match in_chans with positive std")
 
     def __len__(self):
-        return len(self.img_list)
+        return self.length
 
-    def __getitem__(self, idx, transpose=True):
-        imgs = []
+    def __getitem__(self, idx):
+        if not 0 <= idx < self.length:
+            raise IndexError(idx)
+        sample_id = idx % self.fixed_samples if self.fixed_samples else idx
+        generator = torch.Generator().manual_seed(self.seed + sample_id)
+        phase, cx, cy, vx, vy = torch.rand(5, generator=generator).tolist()
+        axis = torch.linspace(-1, 1, self.img_size)
+        y, x = axis.view(1, -1, 1), axis.view(1, 1, -1)
+        time = torch.arange(self.num_timesteps).view(-1, 1, 1).float()
+        # Smooth moving structures with channel-specific responses. Unlike fresh
+        # white noise, masked pixels can be inferred from their visible context.
+        x_shift = x - (cx - 0.5) - (vx - 0.5) * time * 0.08
+        y_shift = y - (cy - 0.5) - (vy - 0.5) * time * 0.08
+        cloud = torch.exp(-(x_shift.square() + y_shift.square()) / 0.18)
+        wave = torch.sin(3 * x_shift + 4 * y_shift + phase * 6.283185)
+        band = torch.linspace(0, 1, self.in_chans).view(1, -1, 1, 1)
+        z = (0.4 + 0.4 * band) * wave[:, None] + (1.2 - 0.4 * band) * cloud[:, None] - 0.3
+        raw = (z * self.std + self.mean).contiguous().float()
+        if self.transform is not None:
+            raw = torch.stack([self.transform(frame.permute(1, 2, 0).numpy()) for frame in raw])
+        start = datetime(2020, 1, 1) + timedelta(minutes=10 * sample_id)
         timestamps = []
-
-        for t in range(self.num_timesteps):
-            # Create random image
-            img = np.random.rand(
-                self.img_size,
-                self.img_size,
-                self.in_chans,
-            ).astype(np.float32)
-            if self.transform:
-                img = self.transform(img)
-            else:
-                img = torch.from_numpy(img).permute(2,0,1)
-
-            imgs.append(img)
-
-            # Generate timestamp
-            ts = self.parse_ts(generate_random_date_str(t))
-            timestamps.append(ts)
-
-        imgs = torch.stack(imgs, dim=0)  # (T, C, H, W)
-        ts = np.stack(timestamps, axis=0)  # (T, 3)
-
-        return imgs, ts
-
-    def get_filenames(self, path):
-        files_list = []
-        for filename in sorted(os.listdir(path)):
-            files_list.append(os.path.join(path, filename))
-        return files_list
-
-    def parse_ts(self, timestamp):
-        year = int(timestamp[:4])
-        month = int(timestamp[5:7])
-        hour = int(timestamp[11:13])
-        return np.array(
-            [
-                year - self.min_year,
-                month - 1,
-                hour,
-            ]
-        )
-
-
-if __name__ == "__main__":
-    # Define simple transform
-    transform = transforms.Compose(
-        [
-            transforms.ToTensor(),
-            transforms.RandomCrop(512),
-        ]
-    )
-
-    # Instantiate toy dataset with 7 timesteps
-    train_ds = ABITemporalBenchmarkDataset(
-        data_paths=[],
-        split="train",
-        transform=transform,
-        img_size=512,
-        in_chans=3,
-        num_timesteps=7
-    )
-
-    # Get sample
-    imgs, ts = train_ds.__getitem__(idx=12)
-    print("Timestamps:\n", ts)
-    print("Image tensor shape:", imgs.shape)
+        for step in range(self.num_timesteps):
+            dt = start + timedelta(minutes=10 * step)
+            values = dict(year=dt.year - 2000, month=dt.month - 1, day=dt.day - 1,
+                          hour=dt.hour, minute=dt.minute)
+            timestamps.append([values[field] for field in self.temporal_embeddings])
+        return raw, torch.tensor(timestamps, dtype=torch.int32)

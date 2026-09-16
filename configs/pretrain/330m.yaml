@@ -1,0 +1,29 @@
+# Architecture/loss preset. Supply local data paths in a derived BASE config.
+PIPELINE: satvision_pix4d_satmae_pretrain
+DATAMODULE: abi_temporal
+MODEL:
+  TYPE: satmae
+  NAME: satvision_330m
+  MAE_VIT:
+    SIZE: 330m
+    IN_CHANS: 16
+    PATCH_SIZE: 16
+    LOSS_TYPE: pixel_structure
+    # Zero-based indices for ordered ABI C01-C16. Excludes thermal C07-C16.
+    VISNIR_CHANNELS: [0, 1, 2, 3, 4, 5]
+    NORM_PIX_LOSS: False
+    REFINE_PIXELS: False
+DATA:
+  IMG_SIZE: 128
+  BATCH_SIZE: 1
+  MASK_RATIO: 0.75
+  TEMPORAL_COMPONENTS: [year, month, day, hour, minute]
+TRAIN:
+  USE_CHECKPOINT: True
+  BASE_LR: 0.00015
+  MIN_LR: 0.000001
+  WARMUP_EPOCHS: 20
+  STRATEGY: deepspeed
+DEEPSPEED:
+  STAGE: 3
+PRECISION: bf16-mixed

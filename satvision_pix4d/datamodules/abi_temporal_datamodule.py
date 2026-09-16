@@ -47,14 +47,23 @@ class ABITemporalDataModule(LightningDataModule):
             self.train_data_paths,
             transform=self.transform,
             img_size=self.img_size,
+            require_timestamps=self.config.DATA.REQUIRE_TIMESTAMPS,
+            num_timesteps=self.config.DATA.NUM_TIMESTEPS,
+            temporal_embeddings=self.config.DATA.TEMPORAL_COMPONENTS,
             in_chans=self.in_chans
         )
         self.validset = ABITemporalDataset(
             self.val_data_paths,
             transform=self.transform,
             img_size=self.img_size,
+            require_timestamps=self.config.DATA.REQUIRE_TIMESTAMPS,
+            num_timesteps=self.config.DATA.NUM_TIMESTEPS,
+            temporal_embeddings=self.config.DATA.TEMPORAL_COMPONENTS,
             in_chans=self.in_chans
         )
+        overlap = set(self.trainset.files) & set(self.validset.files)
+        if overlap:
+            raise ValueError(f"Training and validation share input files: {sorted(overlap)[:3]}")
         logging.info("Done init datasets")
         return
 
@@ -70,7 +79,7 @@ class ABITemporalDataModule(LightningDataModule):
         }
         if self.num_workers > 0:
             loader_kwargs["persistent_workers"] = self.persistent_workers
-            loader_kwargs["prefetch_factor"] = 4
+            loader_kwargs["prefetch_factor"] = 1
 
         return DataLoader(
             self.trainset,
@@ -89,7 +98,7 @@ class ABITemporalDataModule(LightningDataModule):
         }
         if self.num_workers > 0:
             loader_kwargs["persistent_workers"] = self.persistent_workers
-            loader_kwargs["prefetch_factor"] = 4
+            loader_kwargs["prefetch_factor"] = 1
 
         return DataLoader(
             self.validset,

@@ -32,15 +32,17 @@ class ABITemporalDataset(Dataset):
         in_chans: int = 16,
         temporal_embeddings: list = None,
         transform=None,
+        require_timestamps=False,
+        num_timesteps=0,
     ):
         self.min_year = 2000
+        self.require_timestamps = require_timestamps
+        self.num_timesteps = num_timesteps
+        self._warned_missing_timestamps = False
         self.img_size = img_size
         self.in_chans = in_chans
         
-        # self.transform = transform
-        # self.transform = PerTileMinMaxNormalize()
-        # /home/jacaraba/satvision-pix4d/satvision_pix4d/transforms/min_max.py
-        self.transform = None
+        self.transform = transform
 
         if temporal_embeddings is None:
             self.temporal_embeddings = ["year", "month", "hour"]
@@ -74,10 +76,10 @@ class ABITemporalDataset(Dataset):
                 files.extend(sorted(glob.glob(os.path.join(p, "*.zarr"))))
                 files.extend(sorted(glob.glob(os.path.join(p, "*.npy"))))
                 files.extend(sorted(glob.glob(os.path.join(p, "*.npz"))))
-        return sorted(files)
+        return sorted(set(p for p in files if not p.endswith(".timestamps.npy")))
 
     def _numpy_chip_shape(self, path):
-        loaded = np.load(path, allow_pickle=True, mmap_mode="r" if path.endswith(".npy") else None)
+        loaded = np.load(path, allow_pickle=False, mmap_mode="r" if path.endswith(".npy") else None)
         if isinstance(loaded, np.lib.npyio.NpzFile):
             chip_key = next((key for key in CHIP_KEYS if key in loaded.files), None)
             if chip_key is None:
@@ -116,10 +118,6 @@ class ABITemporalDataset(Dataset):
             pass
         elif rad.shape[-1] == self.in_chans:
             rad = np.transpose(rad, (0, 3, 1, 2))
-        elif rad.shape[1] > self.in_chans:
-            rad = rad[:, :self.in_chans, :, :]
-        elif rad.shape[-1] > self.in_chans:
-            rad = np.transpose(rad[..., :self.in_chans], (0, 3, 1, 2))
         else:
             raise ValueError(
                 f"Could not identify channel axis for {path}; expected {self.in_chans} "
@@ -132,15 +130,23 @@ class ABITemporalDataset(Dataset):
                 f"got {rad.shape[-2:]}."
             )
 
-        return np.nan_to_num(rad, nan=0.0)
+        if not np.isfinite(rad).all():
+            raise ValueError(f"Non-finite pixels in {path}; clean or mask missing observations before training")
+        if rad.shape[0] == 0 or (self.num_timesteps and rad.shape[0] != self.num_timesteps):
+            raise ValueError(f"Expected {self.num_timesteps or 'nonzero'} timesteps in {path}, got {rad.shape[0]}")
+        return np.array(rad, dtype=np.float32, copy=True, order="C")
 
     def _parse_timestamp_array(self, values):
         arr = np.asarray(values)
-        if arr.ndim == 2 and arr.shape[1] == len(self.temporal_embeddings):
+        if arr.ndim == 2 and arr.shape[1] == len(self.temporal_embeddings) and np.issubdtype(arr.dtype, np.number):
+            if not np.isfinite(arr).all():
+                raise ValueError("Timestamp components must be finite")
             return arr.astype(np.int32)
-        if arr.ndim > 1:
-            arr = arr[:, 0]
+        if arr.ndim != 1:
+            raise ValueError("Timestamps must be (T,) dates/hours or (T,K) configured numeric components")
         if np.issubdtype(arr.dtype, np.number):
+            if not np.isfinite(arr).all():
+                raise ValueError("Timestamp hours must be finite")
             emb_map = {
                 "year": np.zeros(arr.shape[0], dtype=np.int32),
                 "month": np.zeros(arr.shape[0], dtype=np.int32),
@@ -150,7 +156,9 @@ class ABITemporalDataset(Dataset):
             }
             return np.stack([emb_map[k] for k in self.temporal_embeddings], axis=1).astype(np.int32)
 
-        pd_timestamps = pd.to_datetime(arr)
+        pd_timestamps = pd.to_datetime(arr, utc=True)
+        if pd_timestamps.isna().any():
+            raise ValueError("Timestamps cannot contain NaT")
         emb_map = {
             "year": pd_timestamps.year - self.min_year,
             "month": pd_timestamps.month - 1,
@@ -161,6 +169,11 @@ class ABITemporalDataset(Dataset):
         return np.stack([emb_map[k] for k in self.temporal_embeddings], axis=1).astype(np.int32)
 
     def _fallback_timestamps(self, n_times):
+        if self.require_timestamps:
+            raise ValueError("Missing timestamps: use NPZ timestamps or a <chip>.timestamps.npy sidecar")
+        if not self._warned_missing_timestamps:
+            logging.warning("Missing observation times: using synthetic hourly timestamps; not suitable for temporal pretraining")
+            self._warned_missing_timestamps = True
         emb_map = {
             "year": np.zeros(n_times, dtype=np.int32),
             "month": np.zeros(n_times, dtype=np.int32),
@@ -182,32 +195,41 @@ class ABITemporalDataset(Dataset):
         ds.close()
         return rad, timestamps
 
+    def _select_timestamps(self, values, sample_idx, n_samples, n_times):
+        values = np.asarray(values)
+        if sample_idx is None or values.ndim == 1:
+            return values
+        # Shared numeric (T,K) metadata vs per-sample (N,T) dates/hours.
+        shared = (values.ndim == 2 and values.shape == (n_times, len(self.temporal_embeddings))
+                  and np.issubdtype(values.dtype, np.number))
+        batched = ((values.ndim == 3 and values.shape[:2] == (n_samples, n_times))
+                   or (values.ndim == 2 and values.shape == (n_samples, n_times)))
+        if shared and batched:
+            raise ValueError("Ambiguous timestamps; use explicit (N,T,K) component arrays")
+        return values[sample_idx] if batched else values
+
     def _load_numpy_chip(self, path, sample_idx=None):
-        loaded = np.load(path, allow_pickle=True)
+        loaded = np.load(path, allow_pickle=False, mmap_mode="r" if path.endswith(".npy") else None)
         timestamps = None
-
         if isinstance(loaded, np.lib.npyio.NpzFile):
-            chip_key = next((key for key in CHIP_KEYS if key in loaded.files), None)
-            if chip_key is None:
-                raise ValueError(
-                    f"{path} does not contain a chip array. Expected one of {CHIP_KEYS}; "
-                    f"found {loaded.files}."
-                )
-            rad = loaded[chip_key]
-            if sample_idx is not None:
-                rad = rad[sample_idx]
-            ts_key = next((key for key in TIMESTAMP_KEYS if key in loaded.files), None)
-            if ts_key is not None:
-                ts_values = loaded[ts_key]
-                if sample_idx is not None and np.asarray(ts_values).ndim >= 2:
-                    ts_values = ts_values[sample_idx]
-                timestamps = self._parse_timestamp_array(ts_values)
-            loaded.close()
+            with loaded:
+                chip_key = next((key for key in CHIP_KEYS if key in loaded.files), None)
+                if chip_key is None:
+                    raise ValueError(f"No chip array in {path}; expected one of {CHIP_KEYS}")
+                all_rad = loaded[chip_key]
+                n_samples = all_rad.shape[0] if sample_idx is not None else 1
+                rad = all_rad[sample_idx] if sample_idx is not None else all_rad
+                ts_key = next((key for key in TIMESTAMP_KEYS if key in loaded.files), None)
+                if ts_key is not None:
+                    timestamps = self._parse_timestamp_array(self._select_timestamps(
+                        loaded[ts_key], sample_idx, n_samples, rad.shape[0]))
         else:
-            rad = loaded
-            if sample_idx is not None:
-                rad = rad[sample_idx]
-
+            n_samples = loaded.shape[0] if sample_idx is not None else 1
+            rad = loaded[sample_idx] if sample_idx is not None else loaded
+            sidecar = os.path.splitext(path)[0] + ".timestamps.npy"
+            if os.path.isfile(sidecar):
+                timestamps = self._parse_timestamp_array(self._select_timestamps(
+                    np.load(sidecar, allow_pickle=False), sample_idx, n_samples, rad.shape[0]))
         rad = self._coerce_chip_layout(rad, path)
         if timestamps is None:
             timestamps = self._fallback_timestamps(rad.shape[0])
@@ -222,6 +244,8 @@ class ABITemporalDataset(Dataset):
         else:
             rad, timestamps = self._load_numpy_chip(path, sample_idx)
 
+        if timestamps.shape != (rad.shape[0], len(self.temporal_embeddings)):
+            raise ValueError(f"Timestamp shape {timestamps.shape} does not match chip time axis in {path}")
         # Convert to torch tensor (T, C, H, W)
         tensor = torch.from_numpy(rad)
 

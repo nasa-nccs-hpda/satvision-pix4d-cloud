@@ -1,7 +1,11 @@
 import os
 import logging
+import yaml
+from yacs.config import CfgNode
+from satvision_pix4d.configs.config import _C
 import torch
 import torchmetrics
+from satvision_pix4d.models.utils.reconstruction_logging import reconstruction_grid
 import lightning.pytorch as pl
 
 from satvision_pix4d.models.encoders.mae import build_satmae_model
@@ -9,15 +13,27 @@ from satvision_pix4d.optimizers.build import build_optimizer
 
 
 class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, defer_model=False):
         super().__init__()
-        self.save_hyperparameters(ignore=['model'])
+        if not isinstance(config, CfgNode):
+            restored = _C.clone()
+            restored.merge_from_other_cfg(CfgNode(config))
+            config = restored
+        # Primitive metadata remains compatible with torch.load(weights_only=True).
+        self.save_hyperparameters({"config": yaml.safe_load(config.dump()), "defer_model": defer_model})
         self.config = config
+        if config.MODEL.MAE_VIT.NORM_PIX_LOSS:
+            raise ValueError("This pipeline reconstructs physical pixels; use NORM_PIX_LOSS=False")
+        channels = config.MODEL.MAE_VIT.IN_CHANS
+        if len(config.DATA.MEAN) != channels or len(config.DATA.STD) != channels:
+            raise ValueError("DATA.MEAN and DATA.STD must match MAE_VIT.IN_CHANS")
+        if any(std <= 0 for std in config.DATA.STD):
+            raise ValueError("Channel standard deviations must be positive")
 
         # ------------------------------
         # Build model
         # ------------------------------
-        self.model = build_satmae_model(self.config)
+        self.model = None if defer_model else build_satmae_model(self.config)
 
         # ------------------------------
         # Training/data params
@@ -73,6 +89,40 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
 
         # small debug flag
         self._z_dbg_steps = 0
+
+    def configure_model(self):
+        if self.model is None:
+            self.model = build_satmae_model(self.config)
+
+    def _check_finite_loss(self, loss):
+        finite = self.trainer.strategy.reduce(torch.isfinite(loss).float(), reduce_op="min")
+        if finite.item() != 1:
+            raise FloatingPointError("Non-finite reconstruction loss")
+
+    def _log_loss_components(self, stage, batch_size):
+        for name, value in self.model.reconstruction_loss.last_components.items():
+            self.log(f"{stage}/{name}", value, on_step=stage == "train", on_epoch=True,
+                     sync_dist=True, batch_size=batch_size)
+
+    @torch.no_grad()
+    def _log_reconstruction(self, target, prediction, pixel_mask, batch_idx):
+        if (batch_idx != 0 or not self.trainer.is_global_zero or self.trainer.sanity_checking
+                or not self.config.TENSORBOARD.RECONSTRUCTIONS):
+            return
+        for logger in self.loggers:
+            if hasattr(logger.experiment, "add_image"):
+                grid = reconstruction_grid(target, prediction, pixel_mask,
+                    bands=self.config.TENSORBOARD.RECONSTRUCTION_BANDS,
+                    max_times=self.config.TENSORBOARD.RECONSTRUCTION_TIMESTEPS)
+                logger.experiment.add_image("validation/target_masked_reconstruction", grid, self.current_epoch)
+
+    @torch.no_grad()
+    def _log_band_errors(self, pred, target, pixel_mask):
+        denominator = pixel_mask.sum().clamp_min(1)
+        mae = ((pred - target).abs() * pixel_mask).sum((0, 1, 3, 4)) / denominator
+        for band, value in enumerate(mae):
+            self.log(f"val/masked_mae_band_{band:02d}", value, on_step=False, on_epoch=True,
+                     sync_dist=True, batch_size=target.shape[0])
 
     # ------------------------------
     # Helpers
@@ -130,7 +180,7 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
         for t in range(T):
             if pixel_mask_per_t is not None and is_psnr:
                 m = pixel_mask_per_t[:, t]                      # (B,1,H,W)
-                num = m.sum().clamp_min(1)
+                num = (m.sum() * C).clamp_min(1)
                 mse = (((pred_raw[:, t] - tgt_raw[:, t]) ** 2) * m).sum() / num
                 psnr_t = 10.0 * torch.log10((self.metric_data_range ** 2) / mse.clamp_min(1e-12))
                 vals.append(psnr_t)
@@ -184,7 +234,11 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
             self._z_dbg_steps += 1
 
         loss, pred_tokens, mask_tokens = self.forward(z, timestamps)
-        self.train_loss_avg.update(loss.detach())
+        self._check_finite_loss(loss)
+        self.train_loss_avg.update(loss.detach(), weight=samples_raw.shape[0])
+        self.log("train/loss_step", loss.detach(), on_step=True, on_epoch=False,
+                 sync_dist=True, batch_size=samples_raw.shape[0])
+        self._log_loss_components("train", samples_raw.shape[0])
 
         B, T, C, H, W = z.shape
         # full-image reconstruction for metrics (pred at masked, GT at visible)
@@ -201,10 +255,10 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
         train_ssim_full   = self._avg_over_time(self.train_ssim, pred_raw, tgt_raw, pixel_mask_per_t=None)
         train_psnr_masked = self._avg_over_time(self.train_psnr, pred_raw, tgt_raw, pixel_mask_per_t=pixel_mask_t)
 
-        self.log("train_loss", self.train_loss_avg.compute(), prog_bar=True,  sync_dist=True, batch_size=self.batch_size)
-        self.log("train_psnr", train_psnr_full,               prog_bar=True,  sync_dist=True, batch_size=self.batch_size)
-        self.log("train_ssim", train_ssim_full,               prog_bar=True,  sync_dist=True, batch_size=self.batch_size)
-        self.log("train_psnr_masked", train_psnr_masked,      prog_bar=False, sync_dist=True, batch_size=self.batch_size)
+        self.log("train_loss", self.train_loss_avg, on_step=False, on_epoch=True, prog_bar=True,  sync_dist=True, batch_size=samples_raw.shape[0])
+        self.log("train_psnr", train_psnr_full,               prog_bar=True,  sync_dist=True, batch_size=samples_raw.shape[0])
+        self.log("train_ssim", train_ssim_full,               prog_bar=True,  sync_dist=True, batch_size=samples_raw.shape[0])
+        self.log("train_psnr_masked", train_psnr_masked,      prog_bar=False, sync_dist=True, batch_size=samples_raw.shape[0])
 
         return loss
 
@@ -216,8 +270,16 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
         # standardize here too (this was missing before → caused mismatch)
         z = self._standardize(samples_raw)
 
-        loss, pred_tokens, mask_tokens = self.forward(z, timestamps)
-        self.val_loss_avg.update(loss.detach())
+        devices = [self.device.index] if self.device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            torch.random.default_generator.manual_seed(self.config.SEED + batch_idx)
+            if self.device.type == "cuda":
+                with torch.cuda.device(self.device):
+                    torch.cuda.manual_seed(self.config.SEED + batch_idx)
+            loss, pred_tokens, mask_tokens = self.forward(z, timestamps)
+        self._check_finite_loss(loss)
+        self._log_loss_components("val", samples_raw.shape[0])
+        self.val_loss_avg.update(loss.detach(), weight=samples_raw.shape[0])
         self._last_mask_tokens = mask_tokens
 
         B, T, C, H, W = z.shape
@@ -228,14 +290,17 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
 
         pixel_mask_t = self._tokens_to_pixel_mask(mask_tokens, T, H, W)
 
+        self._log_band_errors(pred_raw, tgt_raw, pixel_mask_t)
+        self._log_reconstruction(tgt_raw, pred_raw, pixel_mask_t, batch_idx)
+
         val_psnr_full   = self._avg_over_time(self.val_psnr, pred_raw, tgt_raw, pixel_mask_per_t=None)
         val_ssim_full   = self._avg_over_time(self.val_ssim, pred_raw, tgt_raw, pixel_mask_per_t=None)
         val_psnr_masked = self._avg_over_time(self.val_psnr, pred_raw, tgt_raw, pixel_mask_per_t=pixel_mask_t)
 
-        self.log("val_loss", self.val_loss_avg.compute(), prog_bar=True,  sync_dist=True, batch_size=self.batch_size)
-        self.log("val_psnr", val_psnr_full,               prog_bar=True,  sync_dist=True, batch_size=self.batch_size)
-        self.log("val_ssim", val_ssim_full,               prog_bar=True,  sync_dist=True, batch_size=self.batch_size)
-        self.log("val_psnr_masked", val_psnr_masked,      prog_bar=False, sync_dist=True, batch_size=self.batch_size)
+        self.log("val_loss", self.val_loss_avg, on_step=False, on_epoch=True, prog_bar=True,  sync_dist=True, batch_size=samples_raw.shape[0])
+        self.log("val_psnr", val_psnr_full,               prog_bar=True,  sync_dist=True, batch_size=samples_raw.shape[0])
+        self.log("val_ssim", val_ssim_full,               prog_bar=True,  sync_dist=True, batch_size=samples_raw.shape[0])
+        self.log("val_psnr_masked", val_psnr_masked,      prog_bar=False, sync_dist=True, batch_size=samples_raw.shape[0])
 
         return loss
 
@@ -251,15 +316,21 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
         warmup_steps = min(warmup_steps, max(0, total_steps - 1))
         cosine_steps = max(1, total_steps - warmup_steps)
 
-        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=1e-6, end_factor=1.0, total_iters=warmup_steps
-        )
         cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=cosine_steps, eta_min=self.config.TRAIN.MIN_LR
         )
-        scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
-        )
+        if warmup_steps > 0:
+            start_factor = self.config.TRAIN.WARMUP_LR / self.config.TRAIN.BASE_LR
+            if not 0 < start_factor <= 1:
+                raise ValueError("WARMUP_LR must be positive and <= BASE_LR")
+            warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+                optimizer, start_factor=start_factor, end_factor=1.0, total_iters=warmup_steps
+            )
+            scheduler = torch.optim.lr_scheduler.SequentialLR(
+                optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
+            )
+        else:
+            scheduler = cosine_scheduler
 
         return {
             "optimizer": optimizer,

@@ -18,11 +18,12 @@ import numpy as np
 # 2D sine-cosine position embedding
 # --------------------------------------------------------
 def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
-    grid_h = np.arange(grid_size, dtype=np.float32)
-    grid_w = np.arange(grid_size, dtype=np.float32)
+    grid_h_size, grid_w_size = (grid_size, grid_size) if isinstance(grid_size, int) else grid_size
+    grid_h = np.arange(grid_h_size, dtype=np.float32)
+    grid_w = np.arange(grid_w_size, dtype=np.float32)
     grid = np.meshgrid(grid_w, grid_h)  # w, h order
     grid = np.stack(grid, axis=0)
-    grid = grid.reshape([2, 1, grid_size, grid_size])
+    grid = grid.reshape([2, 1, grid_h_size, grid_w_size])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token:
         pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)

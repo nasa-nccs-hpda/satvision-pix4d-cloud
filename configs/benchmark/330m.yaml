@@ -1,0 +1,21 @@
+BASE: [../pretrain/330m.yaml]
+DATAMODULE: abi_temporal_benchmark
+DATA:
+  IMG_SIZE: 512
+  BATCH_SIZE: 1
+  LENGTH: 256
+  NUM_WORKERS: 0
+BENCHMARK:
+  TIMESTEPS: 7
+  MODE: throughput
+  STEPS: 100
+  WARMUP_STEPS: 10
+TRAIN:
+  # Constant LR isolates optimizer/model behavior in short runs.
+  WARMUP_EPOCHS: 0
+  EPOCHS: 100
+
+OUTPUT: ./outputs
+TAG: synthetic-pretrain-100epochs
+SAVE_FREQ: 1
+VALIDATION_FREQ: 1

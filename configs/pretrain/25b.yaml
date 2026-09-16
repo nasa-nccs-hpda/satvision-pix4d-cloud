@@ -1,0 +1,7 @@
+# Experimental capacity preset; full-scale training has not been validated.
+# Inherits ZeRO-3, bf16 mixed precision, and activation checkpointing.
+BASE: [330m.yaml]
+MODEL:
+  NAME: satvision_25b
+  MAE_VIT:
+    SIZE: 25b

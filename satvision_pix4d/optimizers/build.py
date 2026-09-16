@@ -1,16 +1,11 @@
 import torch
 import logging
-import deepspeed
 
 from functools import partial
-from satvision_pix4d.optimizers.lamb import Lamb
 
 
 OPTIMIZERS = {
     'adamw': torch.optim.AdamW,
-    'lamb': Lamb,
-    'fusedlamb': deepspeed.ops.lamb.FusedLamb,
-    'fusedadamw': deepspeed.ops.adam.FusedAdam,
 }
 
 
@@ -30,6 +25,14 @@ def get_optimizer_from_dict(optimizer_name, config):
     Returns:
         loss: pytorch optimizer
     """
+
+    if optimizer_name.lower() == "lamb":
+        from satvision_pix4d.optimizers.lamb import Lamb
+        return Lamb
+    if optimizer_name.lower() in {"fusedlamb", "fusedadamw"}:
+        import deepspeed
+        return (deepspeed.ops.lamb.FusedLamb if optimizer_name.lower() == "fusedlamb"
+                else deepspeed.ops.adam.FusedAdam)
 
     try:
 

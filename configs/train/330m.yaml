@@ -1,0 +1,25 @@
+BASE: [../pretrain/330m.yaml]
+OUTPUT: ./outputs
+TAG: numpy-pretrain-100epochs
+DATA:
+  IMG_SIZE: 512
+  NUM_TIMESTEPS: 7
+  REQUIRE_TIMESTAMPS: True
+  # Supply --train-data and --val-data, or override these in a local BASE config.
+  TRAIN_DATA_PATHS: []
+  VAL_DATA_PATHS: []
+  BATCH_SIZE: 1
+  NUM_WORKERS: 2
+TRAIN:
+  EPOCHS: 100
+  WARMUP_EPOCHS: 5
+SAVE_FREQ: 1
+VALIDATION_FREQ: 1
+PRINT_FREQ: 10
+TENSORBOARD:
+  ENABLED: True
+  RECONSTRUCTIONS: True
+  RECONSTRUCTION_BANDS: [1, 12]
+  RECONSTRUCTION_TIMESTEPS: 3
+MLFLOW:
+  ENABLED: False

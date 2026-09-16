@@ -1,95 +1,36 @@
-import logging
-import multiprocessing
-import torch.distributed as dist
-import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, DistributedSampler
-
+"""Synthetic data module usable by both the benchmark and the normal CLI."""
 from lightning.pytorch import LightningDataModule
+from torch.utils.data import DataLoader
 
-# placeholder for testing
-from satvision_pix4d.datasets.abi_temporal_benchmark_dataset \
-    import ABITemporalBenchmarkDataset
+from satvision_pix4d.datasets.abi_temporal_benchmark_dataset import ABITemporalBenchmarkDataset
 
 
 class ABITemporalBenchmarkDataModule(LightningDataModule):
-    def __init__(self, config) -> None:
-
+    def __init__(self, config):
         super().__init__()
-
         self.config = config
-        self.batch_size = config.DATA.BATCH_SIZE
-        self.shuffle = config.DATA.SHUFFLE
-        self.num_workers = config.DATA.NUM_WORKERS
-        self.persistent_workers = config.DATA.PERSISTENT_WORKERS
-        self.img_size = config.DATA.IMG_SIZE
-        self.in_chans = config.MODEL.MAE_VIT.IN_CHANS
-        self.train_data_paths = config.DATA.DATA_PATHS
-        self.train_data_length = config.DATA.LENGTH
-        self.pin_memory = config.DATA.PIN_MEMORY
-        self.drop_last = config.DATA.DROP_LAST
-
-        self.transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                #transforms.RandomCrop(self.img_size),
-            ]
-        )
-
-        self.trainset = None
-        self.validset = None
 
     def setup(self, stage=None):
-        # This is called after Lightning sets up distributed
-        logging.info("> Init datasets")
+        c = self.config
+        kwargs = dict(img_size=c.DATA.IMG_SIZE, in_chans=c.MODEL.MAE_VIT.IN_CHANS,
+                      num_timesteps=c.BENCHMARK.TIMESTEPS, length=c.DATA.LENGTH,
+                      seed=c.SEED, temporal_embeddings=c.DATA.TEMPORAL_COMPONENTS,
+                      mean=c.DATA.MEAN, std=c.DATA.STD)
         self.trainset = ABITemporalBenchmarkDataset(
-            self.train_data_paths,
-            split="train",
-            transform=self.transform,
-            img_size=self.img_size,
-            in_chans=self.in_chans
-        )
-        self.validset = ABITemporalBenchmarkDataset(
-            self.train_data_paths,
-            split="valid",
-            transform=self.transform,
-            img_size=self.img_size,
-            in_chans=self.in_chans
-        )
-        logging.info("Done init datasets")
-        return
+            split="train", fixed_samples=(c.BENCHMARK.FIXED_SAMPLES
+                                         if c.BENCHMARK.MODE == "overfit" else 0), **kwargs)
+        self.validset = ABITemporalBenchmarkDataset(split="valid", **kwargs)
 
-    def train_dataloader(
-        self,
-    ):
-        return DataLoader(
-            self.trainset,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            drop_last=self.drop_last,
-            persistent_workers=self.persistent_workers,
-            prefetch_factor=8
-        )
+    def _loader(self, dataset):
+        c = self.config
+        kwargs = dict(batch_size=c.DATA.BATCH_SIZE, num_workers=c.DATA.NUM_WORKERS,
+                      pin_memory=c.DATA.PIN_MEMORY, shuffle=False, drop_last=True)
+        if c.DATA.NUM_WORKERS > 0:
+            kwargs.update(persistent_workers=c.DATA.PERSISTENT_WORKERS, prefetch_factor=1)
+        return DataLoader(dataset, **kwargs)
 
-    def val_dataloader(
-        self,
-    ):
-        return DataLoader(
-            self.validset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            drop_last=self.drop_last,
-            persistent_workers=self.persistent_workers,
-            prefetch_factor=8
-        )
+    def train_dataloader(self):
+        return self._loader(self.trainset)
 
-    def plot(*args, **kwargs):
-        return None
-
-
-if __name__ == "__main__":
-
-    toa_module = ABITemporalBenchmarkDataModule(data_path=[])
+    def val_dataloader(self):
+        return self._loader(self.validset)
