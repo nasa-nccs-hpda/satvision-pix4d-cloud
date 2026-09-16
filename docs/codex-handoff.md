@@ -6,6 +6,18 @@ observations, and unresolved work; it is not a verbatim chat transcript. Read th
 current code and local run artifacts before assuming these observations remain
 current. Update this document with new measured results and decisions.
 
+### Logging follow-up
+
+After this handoff was first written, the user reported a failed run without a
+saved console traceback and requested improved logging. Both benchmark and
+production training now wrap setup/training in `RunLogging`. Each process writes
+`<output>/logs/rank-<rank>-<timestamp>-pid<pid>.log` and `.status.json`, including
+full Python tracebacks, process/host identity and final status. The benchmark's
+legacy `failure.json` also includes a traceback. Inspect every rank and distinguish
+`completed_nonzero` (overfit criterion failure) from `failed` (exception).
+Native OS-level NCCL output still needs shell tee when required. Hard kills can
+leave status at `running`; it is not a liveness check. See the workflow guide.
+
 ## Immediate objective
 
 Tune **330M throughput first**, then validate overfit convergence using the chosen

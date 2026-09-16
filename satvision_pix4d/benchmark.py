@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 import statistics
 import time
+import traceback
 
 import lightning.pytorch as pl
 import torch
@@ -14,6 +15,7 @@ from satvision_pix4d.datamodules.abi_temporal_benchmark_datamodule import ABITem
 from satvision_pix4d.models.encoders.mae import build_satmae_model
 from satvision_pix4d.optimizers.build import build_optimizer
 from satvision_pix4d.models.utils.device_state import move_non_parameter_state
+from satvision_pix4d.run_logging import RunLogging
 
 
 class SyntheticMAEBenchmark(pl.LightningModule):
@@ -199,7 +201,8 @@ class BenchmarkReport(pl.Callback):
     def on_exception(self, trainer, pl_module, exception):
         if trainer.is_global_zero and self.output.exists():
             self.write("failure.json", dict(status="failed", exception=type(exception).__name__,
-                       message=str(exception), completed_steps=trainer.global_step))
+                       message=str(exception), completed_steps=trainer.global_step,
+                       traceback=''.join(traceback.format_exception(type(exception), exception, exception.__traceback__))))
 
 
 def prepare_config(args):
@@ -278,6 +281,16 @@ def parser():
 def main(argv=None):
     p = parser()
     args = p.parse_args(argv)
+    if args.dry_run:
+        return _run(args, p)
+    # Start before config/model construction, strategy setup, and data loading.
+    with RunLogging(args.output, command=argv) as diagnostics:
+        code = _run(args, p)
+        diagnostics.exit_code = code
+        return code
+
+
+def _run(args, p):
     if (args.steps <= args.warmup_steps or args.warmup_steps < 0
             or min(args.batch_size, args.accumulation_steps, args.devices, args.num_nodes,
                    args.fixed_samples, args.probe_samples) < 1

@@ -15,6 +15,7 @@ from satvision_pix4d.utils import get_strategy, get_distributed_train_batches
 from satvision_pix4d.pipelines import PIPELINES
 from satvision_pix4d.datamodules import DATAMODULES
 from satvision_pix4d.training_monitor import EpochPerformanceMonitor
+from satvision_pix4d.run_logging import RunLogging
 
 
 def build_callbacks(config, output_dir):
@@ -58,6 +59,11 @@ def check_data(config, count=4):
 
 
 def main(config, output_dir):
+    with RunLogging(output_dir):
+        return _train(config, output_dir)
+
+
+def _train(config, output_dir):
     seed_everything(config.SEED, workers=True)
     os.makedirs(output_dir, exist_ok=True)
     # Delay weight allocation until Lightning enters its ZeRO-3 sharded context.

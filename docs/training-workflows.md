@@ -105,6 +105,40 @@ real-world generalization or require beating that baseline.
   size, device, precision, versions, seed, and resolved configuration.
 - `tensorboard/`: scalar curves and initial/final reconstruction panels.
 - `failure.json`: runtime exception details when the callback can catch a failure.
+- `logs/rank-<rank>-<timestamp>-pid<pid>.log`: persistent Python stdout/stderr,
+  warnings, logging messages and full tracebacks for each process. Console output
+  remains visible in your terminal.
+- Matching `*.status.json`: process/rank/host identity, command, timestamps,
+  exit code and full exception traceback. Files are unique per attempt so retries
+  and resumed production runs preserve earlier diagnostics.
+
+Logging starts before model/config construction in the benchmark, and before
+model/trainer/data setup in the production training entry point. Production logs
+are under `outputs/<model>/<tag>/logs/` (or your configured output directory).
+Argument parsing and top-level import failures can occur before logging starts;
+production config-file parsing also precedes output-directory selection.
+
+Inspect a failed run without needing TensorBoard:
+
+```bash
+RUN="benchmark_runs/YOUR-RUN"
+ls -lt "$RUN/logs/"
+rg -n 'Traceback|Error|Exception|out of memory' "$RUN/logs/"
+cat "$RUN"/logs/*.status.json
+```
+
+`failed` records a caught exception; `interrupted` records Ctrl-C;
+`completed_nonzero` with exit code 2 means the overfit convergence threshold was
+not met (check `summary.json`), not a Python crash. `running` is only the last
+recorded status, not proof a process is alive: SIGKILL, host shutdown or an OS OOM
+kill may prevent a final update. Inspect all ranks, since rank 0 may show only a
+secondary communication error after another rank fails.
+
+Python streams do not capture native libraries writing directly to OS file
+descriptors (for example some NCCL/CUDA warnings). For those investigations, also
+capture the launcher output with Bash `set -o pipefail` and
+`python -u ... 2>&1 | tee logs/launcher.log`. Fatal Python stack dumping is enabled
+when no existing faulthandler is active; no logger can recover a SIGKILL traceback.
 
 Throughput mode does not claim convergence. Overfit mode returns **exit code 2**
 if it does not meet the chosen relative-loss-reduction threshold. Other runtime
