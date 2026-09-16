@@ -180,3 +180,4 @@ cython_debug/
 # Training and benchmark artifacts
 outputs/
 benchmark_runs/
+dataset_manifests/

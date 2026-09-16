@@ -1,0 +1,16 @@
+# Provisional sampling proposal: adjust after auditing candidate availability.
+# Counts include train + validation + test, not training alone.
+total_sequences: 1000
+seed: 42
+split_fractions:
+  train: 0.8
+  validation: 0.1
+  test: 0.1
+max_sequences_per_group: 4
+# Pools overlap in nature; a sequence can be selected only once.
+# Earlier pools have priority when a candidate satisfies several criteria.
+train_pool_weights:
+  convection: 0.25
+  cloud_height: 0.25
+  landcover: 0.25
+  random: 0.25

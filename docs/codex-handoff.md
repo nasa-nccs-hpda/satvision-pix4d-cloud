@@ -6,6 +6,24 @@ observations, and unresolved work; it is not a verbatim chat transcript. Read th
 current code and local run artifacts before assuming these observations remain
 current. Update this document with new measured results and decisions.
 
+### Additional request: stratified training dataset
+
+The user now also wants datasets stratified using convection, cloud-top height,
+MODIS land cover, and background/random chips, with an eventual ~200K total
+sequences. **They confirmed seven frames at 20-minute spacing** (two-hour extent).
+Source archive/catalog paths are still pending; old repo paths are clues, not
+confirmed accessible sources. A provisional 1K total pilot and metadata-only
+selector were added: `docs/stratified-training-data.md`,
+`configs/data/stratified_pilot.yaml`, and
+`python -m satvision_pix4d.preprocessing.stratified_manifest`.
+This consumes preannotated CSV candidates, respects preassigned splits or hashes
+audited leakage groups, balances sources/classes for enriched training pools,
+deduplicates selections and reports unmet quotas. Five targeted tests pass.
+No real imagery was downloaded/extracted and CTH/MODIS annotation adapters are
+not implemented yet. Read the design document before building those adapters.
+Do not claim the pilot CSVs can be fed directly to the current training loader.
+200K float32 arrays alone require ~23.49 TB uncompressed; start small.
+
 ### Logging follow-up
 
 After this handoff was first written, the user reported a failed run without a
