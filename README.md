@@ -218,3 +218,10 @@ See [training workflows](docs/training-workflows.md) for synthetic
 and 100-epoch training with TensorBoard reconstructions and epoch checkpoints.
 Configurations cover the 330M, 700M, and 3B models in `configs/benchmark/` and
 `configs/train/`.
+
+## uv environment (H100)
+
+Use `uv sync --locked --extra cu126`, then `source .venv/bin/activate`.
+Run `python -m satvision_pix4d.check_environment --require-deepspeed` on the GPU
+node before training. See [uv setup](docs/uv-environment.md) for the locked
+Python/CUDA dependencies, CPU checks, and CUDA 12.8 alternative.
