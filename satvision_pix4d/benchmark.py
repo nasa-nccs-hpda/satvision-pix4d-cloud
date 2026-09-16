@@ -220,6 +220,8 @@ def prepare_config(args):
     config.DATA.NUM_WORKERS = args.workers
     config.DATA.IMG_SIZE = args.image_size
     config.SEED = args.seed
+    if args.activation_checkpointing is not None:
+        config.TRAIN.USE_CHECKPOINT = args.activation_checkpointing
     if args.lr is not None:
         config.TRAIN.BASE_LR = args.lr
     if args.precision is not None:
@@ -258,6 +260,10 @@ def parser():
     p.add_argument("--accelerator", choices=["gpu", "cpu"], default="gpu")
     p.add_argument("--precision", choices=["32-true", "bf16-mixed", "16-mixed"])
     p.add_argument("--workers", type=int, default=0)
+    p.add_argument("--activation-checkpointing", action=argparse.BooleanOptionalAction,
+                   default=None, help="Override the preset; disabling saves recomputation but uses more GPU memory")
+    p.add_argument("--cpu-threads", type=int,
+                   help="PyTorch CPU threads per rank (loader workers each use one); tune to avoid oversubscription")
     p.add_argument("--fixed-samples", type=int, default=4)
     p.add_argument("--probe-samples", type=int, default=1)
     p.add_argument("--min-relative-improvement", type=float, default=0.1)
@@ -275,11 +281,14 @@ def main(argv=None):
     if (args.steps <= args.warmup_steps or args.warmup_steps < 0
             or min(args.batch_size, args.accumulation_steps, args.devices, args.num_nodes,
                    args.fixed_samples, args.probe_samples) < 1
-            or args.workers < 0 or args.image_size < 112 or args.image_size % 16
+            or args.workers < 0 or (args.cpu_threads is not None and args.cpu_threads < 1)
+            or args.image_size < 112 or args.image_size % 16
             or not 0 <= args.min_relative_improvement < 1
             or (args.lr is not None and (not math.isfinite(args.lr) or args.lr <= 0))):
         p.error("Require steps>warmup>=0, positive sizes/counts/LR, image size>=112 divisible by 16, and improvement in [0,1)")
     config = prepare_config(args)
+    if args.cpu_threads is not None:
+        torch.set_num_threads(args.cpu_threads)
     pl.seed_everything(config.SEED, workers=True)
     with torch.device("meta"):
         model = build_satmae_model(config)
@@ -289,6 +298,8 @@ def main(argv=None):
                     precision=config.PRECISION, strategy=args.strategy,
                     batch_size_per_device=args.batch_size, accumulation_steps=args.accumulation_steps,
                     expected_effective_batch_size=args.batch_size * args.accumulation_steps * args.devices * args.num_nodes,
+                    activation_checkpointing=config.TRAIN.USE_CHECKPOINT,
+                    workers_per_rank=args.workers, cpu_threads_per_rank=torch.get_num_threads(),
                     seed=config.SEED, tiny=args.tiny, torch_version=torch.__version__, lightning_version=pl.__version__)
     del model
     if args.dry_run:

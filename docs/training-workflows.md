@@ -32,6 +32,51 @@ model and optimizer. ZeRO-3 initializes weights in Lightning's sharded context.
 Large parameter initialization explicitly gathers each partitioned child layer
 before applying custom Xavier initialization.
 
+### Throughput tuning on H200 (330M first)
+
+The presets prioritize memory savings: ZeRO-3, activation checkpointing, and
+batch size one. For 330M on H200, measure DDP with checkpointing disabled before
+assuming parameter sharding is needed. This trades more memory for less parameter
+communication and recomputation. More GPU memory used is not itself a speedup;
+compare `summary.json` sequences/sec and peak allocated/reserved GiB.
+
+Use exclusively allocated GPUs for repeatable comparisons. Other workloads can
+delay a rank and stall synchronous training even if they use little memory.
+A starting comparison on four available GPUs is:
+
+```bash
+# Use these IDs only if they are available in your allocation.
+export CUDA_VISIBLE_DEVICES=0,1,3,5
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+python -m satvision_pix4d.benchmark \
+  --model 330M --mode throughput --strategy ddp --devices 4 \
+  --batch-size 2 --workers 2 --cpu-threads 4 \
+  --no-activation-checkpointing \
+  --steps 100 --warmup-steps 10 \
+  --output "benchmark_runs/330M-ddp-b2-$(date +%Y%m%d-%H%M%S)"
+```
+
+Four GPUs with batch two preserves the global batch of eight from eight GPUs
+with batch one (accumulation one). To isolate each tuning effect, hold device
+allocation fixed and vary one setting at a time: strategy, checkpointing, workers,
+then microbatch. Try batch four next if memory permits; that changes the global
+batch and samples processed per optimizer step. Larger batches do not guarantee
+faster convergence, and 500 steps with a larger batch is more work.
+
+The loader overlaps CPU generation using two workers per rank, pinned memory,
+persistent workers and one prefetched batch per worker. `--cpu-threads` caps main
+process PyTorch CPU threads per rank; loader workers use one each. Do not blindly
+use the warning's suggested worker count on every GPU rank. These options and
+the effective batch size are recorded in `metadata.json` and `config.yaml`.
+
+After selecting the fastest stable setup, use `--mode overfit --steps 500
+--fixed-samples 4 --probe-samples 4` to recheck convergence. These are short
+benchmark controls, not changes to the 100-epoch pretraining presets. For real
+training, set `TRAIN.STRATEGY: ddp`, `TRAIN.USE_CHECKPOINT: False`,
+`DATA.BATCH_SIZE` and `DATA.NUM_WORKERS` in a local derived YAML once validated.
+700M and 3B require their own memory/throughput measurements.
+
 Test whether the training implementation can learn a fixed small synthetic set:
 
 ```bash
