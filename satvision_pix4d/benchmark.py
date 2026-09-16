@@ -13,6 +13,7 @@ from satvision_pix4d.configs.config import _C, _update_config_from_file
 from satvision_pix4d.datamodules.abi_temporal_benchmark_datamodule import ABITemporalBenchmarkDataModule
 from satvision_pix4d.models.encoders.mae import build_satmae_model
 from satvision_pix4d.optimizers.build import build_optimizer
+from satvision_pix4d.models.utils.device_state import move_non_parameter_state
 
 
 class SyntheticMAEBenchmark(pl.LightningModule):
@@ -27,6 +28,8 @@ class SyntheticMAEBenchmark(pl.LightningModule):
     def configure_model(self):
         if self.model is None:
             self.model = build_satmae_model(self.config)
+        if self._trainer is not None:
+            move_non_parameter_state(self, self.trainer.strategy.root_device)
 
     def forward(self, raw, timestamps, permutation=None):
         z = (raw.float() - self.mean) / self.std

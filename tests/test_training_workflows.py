@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -13,6 +14,29 @@ from satvision_pix4d.datasets.abi_temporal_dataset import ABITemporalDataset
 from satvision_pix4d.satvision_pix4d_cli import main as train_main, check_data
 
 FIELDS = ['year', 'month', 'day', 'hour', 'minute']
+
+
+@pytest.mark.parametrize('workflow', ['benchmark', 'pretrain'])
+def test_configure_model_places_buffers_without_moving_parameters(workflow):
+    from satvision_pix4d.benchmark import SyntheticMAEBenchmark, parser, prepare_config
+    from satvision_pix4d.pipelines.satvision_pix4d_pretrain import SatVisionPix4DSatMAEPretrain
+
+    config = prepare_config(parser().parse_args(['--tiny', '--output', 'unused']))
+    module = (SyntheticMAEBenchmark(config) if workflow == 'benchmark'
+              else SatVisionPix4DSatMAEPretrain(config, defer_model=True))
+    # Meta provides a distinct device without requiring GPUs or allocating a
+    # large model. Parameters stand in for shards owned by DeepSpeed.
+    module.model = torch.nn.Linear(2, 2)
+    module.model.register_buffer('loss_bounds', torch.tensor([0., 1.]), persistent=False)
+    weight = module.model.weight
+    module._trainer = SimpleNamespace(strategy=SimpleNamespace(root_device=torch.device('meta')))
+    module.configure_model()
+    assert all(buffer.device.type == 'meta' for buffer in module.buffers())
+    assert module.model.weight is weight and weight.device.type == 'cpu'
+    assert 'model.loss_bounds' not in module.state_dict()
+    if workflow == 'pretrain':
+        assert module.train_loss_avg.mean_value.device.type == 'meta'
+        assert module.val_psnr.sum_squared_error.device.type == 'meta'
 
 
 def test_synthetic_full_shape_and_reproducibility():

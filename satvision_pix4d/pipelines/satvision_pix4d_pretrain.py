@@ -93,6 +93,9 @@ class SatVisionPix4DSatMAEPretrain(pl.LightningModule):
     def configure_model(self):
         if self.model is None:
             self.model = build_satmae_model(self.config)
+        if self._trainer is not None:
+            from satvision_pix4d.models.utils.device_state import move_non_parameter_state
+            move_non_parameter_state(self, self.trainer.strategy.root_device)
 
     def _check_finite_loss(self, loss):
         finite = self.trainer.strategy.reduce(torch.isfinite(loss).float(), reduce_op="min")
