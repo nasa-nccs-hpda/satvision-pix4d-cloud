@@ -8,6 +8,12 @@ current. Update this document with new measured results and decisions.
 
 ### Additional request: stratified training dataset
 
+The user will continue this work on **Explore**, and asked only to prepare the
+repository for that move. Start with `docs/explore-handoff.md`: it includes a
+separate locked CPU environment (`environments/explore`), a configurable source
+inventory and a read-only preflight command. Do not assume the DGX has the source
+archives or launch extraction from this handoff automatically.
+
 The user now also wants datasets stratified using convection, cloud-top height,
 MODIS land cover, and background/random chips, with an eventual ~200K total
 sequences. **They confirmed seven frames at 20-minute spacing** (two-hour extent).

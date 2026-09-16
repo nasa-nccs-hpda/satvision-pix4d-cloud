@@ -1,0 +1,26 @@
+[project]
+name = "satvision-explore-data"
+version = "0.1.0"
+description = "CPU environment for ABI catalog discovery and dataset preparation"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<3",
+  "xarray>=2024.10,<2026",
+  "PyYAML>=6,<7",
+  "tqdm>=4.66,<5",
+  "netCDF4>=1.7,<2",
+  "h5netcdf>=1.4,<2",
+  "h5py>=3.12,<4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.uv]
+package = false
+required-version = ">=0.9.0"
+environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+]

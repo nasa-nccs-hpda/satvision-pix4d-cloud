@@ -1,0 +1,28 @@
+# Copy to explore_sources.local.yaml, then verify/edit on Explore.
+# Historical repo paths below are discovery leads, not confirmed data availability.
+# This file is used by explore_preflight, not by the image extractor.
+sources:
+  abi_goes16:
+    kind: directory
+    path: /css/geostationary/NonOptimized/L1/GOES-16-ABI-L1B-FULLD
+  abi_goes17:
+    kind: directory
+    path: /css/geostationary/NonOptimized/L1/GOES-17-ABI-L1B-FULLD
+  geolocation_goes16:
+    kind: file
+    path: /explore/nobackup/projects/pix4dcloud/jgong/ABI_EAST_GEO_TOPO_LOMSK.nc
+  geolocation_goes17:
+    kind: file
+    path: /explore/nobackup/projects/pix4dcloud/jgong/ABI_WEST_GEO_TOPO_LOMSK.nc
+  convection_metadata:
+    kind: glob
+    path: /explore/nobackup/projects/pix4dcloud/jacaraba/tiles_pix4d/1-metadata/convection-filtered/*_DCS_number_monthly_metadata.csv
+  convection_lifetimes:
+    kind: glob
+    path: null  # Locate track lifetimes; verify event ID namespace and censoring.
+  cloud_top_height:
+    kind: directory
+    path: null  # Locate ABI L2 cloud height and associated QA/cloud-mask products.
+  modis_land_cover:
+    kind: directory
+    path: null  # Locate MCD12Q1 and establish product version, year and reader.

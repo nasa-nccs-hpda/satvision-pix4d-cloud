@@ -181,3 +181,4 @@ cython_debug/
 outputs/
 benchmark_runs/
 dataset_manifests/
+configs/data/*.local.yaml

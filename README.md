@@ -1,5 +1,9 @@
 # SatVision-Pix4DCloud
 
+For the current Explore dataset-preparation work, start with
+[the Explore handoff](docs/explore-handoff.md). It provides a separate CPU uv
+environment, source-discovery template and the staged stratified-pilot workflow.
+
 SatVision-PIX4D is a scalable data generation and pre-training pipeline for geostationary satellite imagery, designed to support self-supervised and foundation-model development using ABI L1 data. The system is optimized for execution on NASA NCCS HPC resources using Singularity containers and supports stratified tile generation (e.g., convection, cloud systems, land cover).
 
 ## 1. Container Setup
