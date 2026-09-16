@@ -24,6 +24,7 @@ uv sync --locked --extra cu126
 source .venv/bin/activate
 
 # Run this on your allocated GPU node, not a CPU-only login node.
+# DeepSpeed requires a discoverable toolkit here; see the toolkit section below.
 nvidia-smi
 python -m satvision_pix4d.check_environment --require-deepspeed
 ```
@@ -60,10 +61,38 @@ If an older checkout fails with `CUDA_HOME does not exist` during `uv sync`, pul
 the updated branch and retry `uv sync --locked --extra cu128` (or `cu126`). There
 is no need to delete `.venv` or set `CUDA_HOME` to a nonexistent toolkit.
 
-If your chosen runtime optimizer/offload configuration JIT-compiles
-an operator, a compatible CUDA toolkit/compiler must also be available on that
-node. The default workflows use torch AdamW without CPU/NVMe offload. You do not
+DeepSpeed 0.17.6 also probes `nvcc` at **import time** on GPU nodes, including for
+unused optional operators. Therefore a real CUDA toolkit must be discoverable
+for these DeepSpeed workflows even with `DS_BUILD_OPS=0` and no optimizer offload.
+The installation fix above does not remove this runtime requirement. The default
+workflows use torch AdamW without CPU/NVMe offload. You do not
 need the separate `flash-attn` package: the model uses PyTorch SDPA.
+
+## CUDA toolkit on the training node
+
+Use the site's CUDA toolkit module if available (check `module avail cuda` for
+the actual name). Match toolkit 12.8 to `cu128`, or 12.6 to `cu126`. To find an
+existing installation:
+
+```bash
+command -v nvcc
+ls -d /usr/local/cuda* /opt/cuda* 2>/dev/null
+```
+
+For example, **only if `/usr/local/cuda-12.8/bin/nvcc` exists**, run:
+
+```bash
+export CUDA_HOME=/usr/local/cuda-12.8
+export PATH="$CUDA_HOME/bin:$PATH"
+"$CUDA_HOME/bin/nvcc" --version
+python -m satvision_pix4d.check_environment --require-deepspeed
+```
+
+Keep these exports/module loads in your training job script too. If no toolkit
+is installed, arrange a CUDA toolkit installation or use a site-provided CUDA
+development container. The existing compatible NVIDIA driver need not be changed.
+Do not set a fake toolkit path, point CUDA_HOME at PyTorch's runtime libraries,
+or use `DS_SKIP_CUDA_CHECK` to work around a missing compiler.
 
 ## Run the models
 

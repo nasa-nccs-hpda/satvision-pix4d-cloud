@@ -2,6 +2,8 @@
 import argparse
 from importlib.metadata import version
 import json
+import os
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -17,6 +19,20 @@ def main(argv=None):
     from satvision_pix4d.benchmark import SyntheticMAEBenchmark  # noqa: F401
     from satvision_pix4d.satvision_pix4d_cli import main as train_main  # noqa: F401
     if args.require_deepspeed:
+        # DeepSpeed 0.17.6 probes nvcc for optional op compatibility on import,
+        # even when installation used DS_BUILD_OPS=0.
+        if torch.cuda.is_available():
+            from torch.utils.cpp_extension import CUDA_HOME
+            nvcc = Path(CUDA_HOME) / 'bin' / 'nvcc' if CUDA_HOME else None
+            if nvcc is None or not os.access(nvcc, os.X_OK):
+                parser.error(
+                    'DeepSpeed 0.17.6 requires a discoverable CUDA toolkit on GPU nodes. '
+                    'Load your site CUDA module or set CUDA_HOME to the real toolkit root '
+                    '(containing bin/nvcc), then retry in a fresh Python process. '
+                    'For cu128 use CUDA toolkit 12.8. nvidia-smi reports driver support, '
+                    'not toolkit installation. See docs/uv-environment.md.'
+                )
+            report['cuda_toolkit'] = str(CUDA_HOME)
         import deepspeed
         report['deepspeed'] = deepspeed.__version__
     report['cuda_runtime'] = torch.version.cuda
