@@ -1,12 +1,14 @@
 """CPU regression tests; large presets are constructed on meta, never allocated."""
 from types import SimpleNamespace
+from contextlib import contextmanager
+import sys
 
 import pytest
 import torch
 
 from satvision_pix4d.configs.config import get_config
 from satvision_pix4d.models.encoders.mae import build_satmae_model
-from satvision_pix4d.models.encoders.models_mae_temporal import MaskedAutoencoderViT
+from satvision_pix4d.models.encoders.models_mae_temporal import MaskedAutoencoderViT, _gather_for_initialization
 from satvision_pix4d.models.reconstruction_loss import ReconstructionLoss
 
 
@@ -16,6 +18,28 @@ def tiny(**kwargs):
                 decoder_num_heads=4, enc_ts_dim_per_comp=8, dec_ts_dim_per_comp=4)
     args.update(kwargs)
     return MaskedAutoencoderViT(**args)
+
+
+def test_partitioned_initialization_uses_deepspeed_zero_attribute(monkeypatch):
+    # DeepSpeed exports zero as an attribute, not an importable deepspeed.zero.
+    layer = torch.nn.Linear(2, 3)
+    layer.weight.ds_id = 0
+    events = []
+
+    @contextmanager
+    def gathered(parameters, modifier_rank):
+        assert [id(p) for p in parameters] == [id(layer.weight), id(layer.bias)]
+        assert modifier_rank == 0
+        events.append('enter')
+        yield
+        events.append('exit')
+
+    monkeypatch.setitem(sys.modules, 'deepspeed', SimpleNamespace(
+        zero=SimpleNamespace(GatheredParameters=gathered)))
+    monkeypatch.delitem(sys.modules, 'deepspeed.zero', raising=False)
+    with _gather_for_initialization(layer):
+        assert events == ['enter']
+    assert events == ['enter', 'exit']
 
 
 @pytest.mark.parametrize('shape', [(1, 1, 2, 32, 48), (2, 3, 2, 64, 32)])

@@ -16,8 +16,8 @@ def _gather_for_initialization(module):
     """Child layers can already be partitioned inside DeepSpeed zero.Init."""
     parameters = list(module.parameters(recurse=False))
     if any(hasattr(parameter, "ds_id") for parameter in parameters):
-        from deepspeed.zero import GatheredParameters
-        return GatheredParameters(parameters, modifier_rank=0)
+        import deepspeed
+        return deepspeed.zero.GatheredParameters(parameters, modifier_rank=0)
     return nullcontext()
 
 
