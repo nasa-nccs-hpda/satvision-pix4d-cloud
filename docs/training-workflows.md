@@ -2,7 +2,7 @@
 
 The supported capacity targets for these workflows are **330M** (336.49M actual
 parameters), **700M** (705.14M), and **3B** (3.037B). The benchmark also accepts
-`--model 300m` as an alias for 330M. Inputs default to **[B,7,16,512,512]**;
+`--model 300M` as an alias for 330M. Inputs default to **[B,7,16,512,512]**;
 B is the per-device microbatch size. All commands below run from the repository
 root in the training environment. The container definitions include TensorBoard.
 
@@ -11,7 +11,7 @@ root in the training environment. The container definitions include TensorBoard.
 Check a preset without allocating weights or needing a GPU:
 
 ```bash
-python -m satvision_pix4d.benchmark --model 3b --dry-run --output benchmark_runs/check
+python -m satvision_pix4d.benchmark --model 3B --dry-run --output benchmark_runs/check
 ```
 
 Measure training throughput and peak GPU memory, excluding the first ten optimizer
@@ -20,12 +20,12 @@ ZeRO-3 is the default strategy and needs DeepSpeed in the environment.
 
 ```bash
 python -m satvision_pix4d.benchmark \
-  --model 330m --mode throughput --devices 4 \
+  --model 330M --mode throughput --devices 4 \
   --steps 100 --warmup-steps 10 --batch-size 1 --accumulation-steps 1 \
   --output benchmark_runs/330m-throughput
 ```
 
-Repeat with `--model 700m` and `--model 3b`, using a different output directory for
+Repeat with `--model 700M` and `--model 3B`, using a different output directory for
 each. For an unsharded single-GPU run, select `--strategy auto --devices 1`.
 For replicated multi-GPU training use `--strategy ddp`; each GPU must hold a full
 model and optimizer. ZeRO-3 initializes weights in Lightning's sharded context.
@@ -36,7 +36,7 @@ Test whether the training implementation can learn a fixed small synthetic set:
 
 ```bash
 python -m satvision_pix4d.benchmark \
-  --model 330m --mode overfit --devices 4 \
+  --model 330M --mode overfit --devices 4 \
   --steps 500 --warmup-steps 10 --fixed-samples 4 \
   --probe-samples 4 --min-relative-improvement 0.10 \
   --output benchmark_runs/330m-overfit

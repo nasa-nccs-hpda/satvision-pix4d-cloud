@@ -201,7 +201,8 @@ class BenchmarkReport(pl.Callback):
 
 def prepare_config(args):
     root = Path(__file__).resolve().parents[1]
-    model = "330m" if args.model == "300m" else args.model
+    model = args.model.lower()
+    model = "330m" if model == "300m" else model
     config = _C.clone()
     _update_config_from_file(config, str(root / "configs" / "benchmark" / f"{model}.yaml"))
     config.defrost()
@@ -240,7 +241,8 @@ def prepare_config(args):
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", choices=["300m", "330m", "700m", "3b"], default="330m")
+    p.add_argument("--model", type=str.upper, choices=["300M", "330M", "700M", "3B"],
+                   default="330M", help="Model size (case-insensitive); 300M is an alias for 330M")
     p.add_argument("--mode", choices=["throughput", "overfit"], default="throughput")
     p.add_argument("--output", type=Path, required=True, help="Fresh artifact directory")
     p.add_argument("--steps", type=int, default=100, help="Total optimizer updates, including timing warmup")

@@ -101,7 +101,7 @@ After activation, use the commands already in the
 
 ```bash
 python -m satvision_pix4d.benchmark \
-  --model 330m --devices 4 --steps 100 --warmup-steps 10 \
+  --model 330M --devices 4 --steps 100 --warmup-steps 10 \
   --output benchmark_runs/330m-h100
 
 python -m satvision_pix4d.satvision_pix4d_cli \
@@ -116,7 +116,7 @@ without activating, include the selected extra on every command:
 
 ```bash
 uv run --locked --extra cu126 python -m satvision_pix4d.benchmark \
-  --model 3b --dry-run --output benchmark_runs/3b-check
+  --model 3B --dry-run --output benchmark_runs/3b-check
 ```
 
 Plain `uv run` may synchronize without the optional CUDA dependencies; avoid mixing
